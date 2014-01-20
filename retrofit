@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# Intermediary Linux Bridge
+lb_name="lb-admin"
+
+# Physical interface
+if_name="eth2"
+
+# OVS bridge
+br_name="br-prov"
+
+# TODO: Need logic to figure out what's where here
+# For now, this assumes the phy isn't in the OVS bridge
+
+# Get MAC address
+if_lladdr=$(ip -o link show $if_name | sed -nr 's/^.*ether ([^ ]+).*$/\1/p')
+
+# Get (IPv4) addresses
+if_addrs=($(ip -o addr show $if_name | sed -nr '/inet/ s/^.*inet ([^ ]+).*$/\1/p'))
+
+# TODO: See above
+# Get default route(s) involving phy
+rt_defaults=($(ip route show exact 0.0.0.0/0 dev $if_name))
+
+# Create linux bridge and veth pair
+brctl addbr $lb_name
+ip link add name phy-$lb_name type veth peer name ovs-$lb_name
+
+# Set the things we made UP
+for dev in {,phy-,ovs-}$lb_name
+do
+    ip link set $dev up
+done
+
+# Stop keepalived before we change things
+service keepalived stop
+
+# Switch configs to use the bridge
+sed -i "s/$if_name/$lb_name/" /etc/keepalived/conf.d/vrrp*.conf
+
+# TODO: Need logic to figure out what's where before we do the next few steps
+# For now, this assumes the phy isn't in the OVS bridge
+
+# Remove IPs from phy
+ip addr flush $if_name
+
+# TODO: See above
+# Remove phy from OVS bridge
+ovs-vsctl del-port $br_name $if_name
+
+# Add phy and veth to LB
+brctl addif $lb_name $if_name
+brctl addif $lb_name phy-$lb_name
+
+# Pin LB MAC address
+ip link set $lb_name addr $if_lladdr
+
+# Add other veth to OVS bridge
+ovs-vsctl add-port $br_name ovs-$lb_name
+
+# Re-add saved IPs to LB
+for addr in "${if_addrs[@]}"
+do
+    ip addr add dev $lb_name $addr
+done
+
+# Re-add default route(s)
+for route in "${rt_defaults[@]}"
+do
+    ip route add $route
+done
+
+# Start keepalived back up
+service keepalived start
