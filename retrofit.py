@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
 # Yay python 3.x
-from __future__ import print_function, generators, division, nested_scopes, with_statement
+from __future__ import print_function, generators, division, nested_scopes
 
 import argparse
-import ConfigParser
 import os
 import re
 import shlex
