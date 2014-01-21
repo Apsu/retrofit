@@ -63,22 +63,33 @@ class Retrofit():
     self.ips = [
       ip
       for ip in re.findall("inet6?\s(\S+)", dump)
-      if not ip.startswith("fe80") # Exclude link-local
+      if not ip.startswith("fe80")  # Exclude link-local
     ]
 
     # Check we've got the right thing
     if not len(self.ips) and not self.force:
-      raise Exception("Interface '{}' has no IP addresses. Pass -f to force anyway.".format(iface))
+      raise Exception(
+        "Interface '{}' has no IP addresses. Pass -f to force anyway.".format(
+          iface
+        )
+      )
 
     if not self.quiet:
       print("* IPs found: '{}' *".format(", ".join(self.ips)))
 
     # Store MAC address
-    self.mac = (lambda x: x.group(1) if x else x)(re.search("link/ether\s(\S+)", dump))
+    self.mac = (lambda x: x.group(1) if x else x)(
+      re.search(
+        "link/ether\s(\S+)",
+        dump
+      )
+    )
 
     # Can has MAC?
     if not self.mac:
-      raise Exception("Interface '{}' has an unexpected or missing MAC address. The universe may have ended, good luck!".format(iface))
+      raise Exception(
+        "Interface '{}' has an unexpected or missing MAC address. \
+The universe may have ended, good luck!".format(iface))
 
     if not self.quiet:
       print("* MAC found: '{}' *".format(self.mac))
@@ -87,7 +98,7 @@ class Retrofit():
     self.routes = [
       " ".join(route.split())
       for route in self.call("ip route list".format(iface)).splitlines()
-      if iface in route and "kernel" not in route # Exclude automatic routes
+      if iface in route and "kernel" not in route  # Exclude automatic routes
     ]
 
     if not self.quiet and len(self.routes):
@@ -118,7 +129,12 @@ class Retrofit():
     )
 
     # Bring them up
-    for dev in [self.iface, self.linuxBridge, "phy-" + self.linuxBridge, "ovs-" + self.linuxBridge]:
+    for dev in [
+        self.iface,
+        self.linuxBridge,
+        "phy-" + self.linuxBridge,
+        "ovs-" + self.linuxBridge
+    ]:
       self.call("ip link set {} up".format(dev))
 
     if not self.quiet:
@@ -128,7 +144,9 @@ class Retrofit():
     self.call("service keepalived stop")
 
     if not self.quiet:
-      print("* Replacing references to: '{}' with: '{}' in keepalived configs *".format(self.ovsBridge, self.linuxBridge))
+      print(
+        "* Replacing references to: '{}' with: \
+'{}' in keepalived configs *".format(self.ovsBridge, self.linuxBridge))
 
     # Modify configs to use the linux bridge
     for file in [
@@ -145,7 +163,12 @@ class Retrofit():
       )
 
     if not self.quiet:
-      print("* Remove IPs and interface: '{}' from: '{}' *".format(self.iface, self.ovsBridge))
+      print(
+        "* Remove IPs and interface: '{}' from: '{}' *".format(
+          self.iface,
+          self.ovsBridge
+        )
+      )
 
     # Flush IPs from OVS bridge
     self.call("ip addr flush {}".format(self.ovsBridge))
@@ -162,20 +185,36 @@ class Retrofit():
     self.call("ip link set {} down".format(self.ovsBridge))
 
     if not self.quiet:
-      print("* Add interface: '{}' and veth: '{}' to: '{}'".format(self.iface, "phy-" + self.linuxBridge, self.linuxBridge))
+      print(
+        "* Add interface: '{}' and veth: '{}' to: '{}'".format(
+          self.iface,
+          "phy-" + self.linuxBridge,
+          self.linuxBridge
+        )
+      )
 
     # Add interfaces to linux bridge
     for dev in [self.iface, "phy-" + self.linuxBridge]:
       self.call("brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
 
     if not self.quiet:
-      print("* Pin MAC address: '{}' to: '{}'".format(self.mac, self.linuxBridge))
+      print(
+        "* Pin MAC address: '{}' to: '{}'".format(
+          self.mac,
+          self.linuxBridge
+        )
+        ¯)
 
     # Set MAC address of linux bridge
     self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
 
     if not self.quiet:
-      print("* Add veth: '{}' to: '{}'".format("ovs-" + self.linuxBridge, self.ovsBridge))
+      print(
+        "* Add veth: '{}' to: '{}'".format(
+          "ovs-" + self.linuxBridge,
+          self.ovsBridge
+        )
+      )
 
     # Add other veth interface to OVS bridge
     self.call(
@@ -187,7 +226,12 @@ class Retrofit():
     )
 
     if not self.quiet:
-      print("* Add IPs: '{}' to: '{}'".format(", ".join(self.ips), self.linuxBridge))
+      print(
+        "* Add IPs: '{}' to: '{}'".format(
+          ", ".join(self.ips),
+          self.linuxBridge
+        )
+      )
 
     # Add IPs to new linux bridge
     for ip in self.ips:
@@ -236,7 +280,8 @@ class Retrofit():
     self.call("service keepalived stop")
 
     if not self.quiet:
-      print("* Replacing references to: '{}' with: '{}' in keepalived configs *".format(self.linuxBridge, self.ovsBridge))
+      print("* Replacing references to: '{}' with: \
+'{}' in keepalived configs *".format(self.linuxBridge, self.ovsBridge))
 
     # Modify configs to use the linux bridge
     for file in [
@@ -253,7 +298,13 @@ class Retrofit():
       )
 
     if not self.quiet:
-      print("* Remove IPs, interface: '{}' and veth: '{}' from: '{}' *".format(self.iface, "phy-" + self.linuxBridge, self.linuxBridge))
+      print(
+        "* Remove IPs, interface: '{}' and veth: '{}' from: '{}' *".format(
+          self.iface,
+          "phy-" + self.linuxBridge,
+          self.linuxBridge
+        )
+      )
 
     # Flush IPs from linux bridge
     self.call("ip addr flush {}".format(self.linuxBridge))
@@ -263,7 +314,12 @@ class Retrofit():
       self.call("brctl delif {} {}".format(self.linuxBridge, dev), ignore=True)
 
     if not self.quiet:
-      print("* Remove veth: '{}' from: '{}'".format("ovs-" + self.linuxBridge, self.ovsBridge))
+      print(
+        "* Remove veth: '{}' from: '{}'".format(
+          "ovs-" + self.linuxBridge,
+          self.ovsBridge
+        )
+      )
 
     # Remove other veth interface from OVS bridge
     self.call(
@@ -294,7 +350,12 @@ class Retrofit():
     self.call("brctl delbr {}".format(self.linuxBridge), ignore=True)
 
     if not self.quiet:
-      print("* Add interface: '{}' to: '{}'".format(self.iface, self.ovsBridge))
+      print(
+        "* Add interface: '{}' to: '{}'".format(
+          self.iface,
+          self.ovsBridge
+        )
+      )
 
     # Add interface to OVS bridge
     self.call(
@@ -305,7 +366,12 @@ class Retrofit():
     )
 
     if not self.quiet:
-      print("* Add IPs: '{}' to: '{}'".format(", ".join(self.ips), self.ovsBridge))
+      print(
+        "* Add IPs: '{}' to: '{}'".format(
+          ", ".join(self.ips),
+          self.ovsBridge
+        )
+      )
 
     # Bring up OVS interface
     self.call("ip link set {} up".format(self.ovsBridge))
@@ -339,7 +405,6 @@ class Retrofit():
     # Start keepalived again
     self.call("service keepalived start")
 
-
   def bootstrap(self):
     "Bootstrap interfaces"
 
@@ -365,7 +430,12 @@ class Retrofit():
     )
 
     # Bring them up
-    for dev in [self.iface, self.linuxBridge, "phy-" + self.linuxBridge, "ovs-" + self.linuxBridge]:
+    for dev in [
+        self.iface,
+        self.linuxBridge,
+        "phy-" + self.linuxBridge,
+        "ovs-" + self.linuxBridge
+    ]:
       self.call("ip link set {} up".format(dev))
 
     if not self.quiet:
@@ -375,7 +445,9 @@ class Retrofit():
     self.call("service keepalived stop")
 
     if not self.quiet:
-      print("* Replacing references to: '{}' with: '{}' in keepalived configs *".format(self.iface, self.linuxBridge))
+      print(
+        "* Replacing references to: '{}' with: \
+'{}' in keepalived configs *".format(self.iface, self.linuxBridge))
 
     # Modify configs to use the linux bridge
     for file in [
@@ -398,20 +470,36 @@ class Retrofit():
     self.call("ip addr flush {}".format(self.iface))
 
     if not self.quiet:
-      print("* Add interface: '{}' and veth: '{}' to: '{}'".format(self.iface, "phy-" + self.linuxBridge, self.linuxBridge))
+      print(
+        "* Add interface: '{}' and veth: '{}' to: '{}'".format(
+          self.iface,
+          "phy-" + self.linuxBridge,
+          self.linuxBridge
+        )
+      )
 
     # Add interfaces to linux bridge
     for dev in [self.iface, "phy-" + self.linuxBridge]:
       self.call("brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
 
     if not self.quiet:
-      print("* Pin MAC address: '{}' to: '{}'".format(self.mac, self.linuxBridge))
+      print(
+        "* Pin MAC address: '{}' to: '{}'".format(
+          self.mac,
+          self.linuxBridge
+        )
+      )
 
     # Set MAC address of linux bridge
     self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
 
     if not self.quiet:
-      print("* Add veth: '{}' to: '{}'".format("ovs-" + self.linuxBridge, self.ovsBridge))
+      print(
+        "* Add veth: '{}' to: '{}'".format(
+          "ovs-" + self.linuxBridge,
+          self.ovsBridge
+        )
+      )
 
     # Add other veth interface to OVS bridge
     self.call(
@@ -423,7 +511,12 @@ class Retrofit():
     )
 
     if not self.quiet:
-      print("* Add IPs: '{}' to: '{}'".format(", ".join(self.ips), self.linuxBridge))
+      print(
+        "* Add IPs: '{}' to: '{}'".format(
+          ", ".join(self.ips),
+          self.linuxBridge
+        )
+      )
 
     # Add IPs to new linux bridge
     for ip in self.ips:
@@ -455,23 +548,66 @@ class Retrofit():
     self.call("service keepalived start")
 
 
-
 def main():
-  parser = argparse.ArgumentParser(description="This tool will bootstrap, retrofit or revert an RPC environment for single-NIC/multi-NIC configuration.",
-                                   formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=80))
+  parser = argparse.ArgumentParser(
+    description="This tool will bootstrap, retrofit or revert an RPC \
+environment for single-NIC/multi-NIC configuration.",
+    formatter_class=lambda prog: argparse.HelpFormatter(
+      prog,
+      max_help_position=80
+    )
+  )
 
   output = parser.add_mutually_exclusive_group()
-  output.add_argument("-v", "--verbose", help="Verbose output of steps taken", action="store_true")
-  output.add_argument("-q", "--quiet", help="Only output errors (to stderr)", action="store_true")
+  output.add_argument(
+    "-v",
+    "--verbose",
+    help="Verbose output of steps taken",
+    action="store_true"
+  )
+  output.add_argument(
+    "-q",
+    "--quiet",
+    help="Only output errors (to stderr)",
+    action="store_true"
+  )
 
   input = parser.add_argument_group("input arguments")
-  input.add_argument("-i", "--iface", help="Interface to retrofit", type=str, required=True)
-  input.add_argument("-l", "--lb", help="Linux bridge to retrofit", type=str, required=True)
-  input.add_argument("-o", "--ovs", help="OVS bridge to retrofit", type=str, required=True)
+  input.add_argument(
+    "-i",
+    "--iface",
+    help="Interface to modify",
+    type=str,
+    required=True
+  )
+  input.add_argument(
+    "-l",
+    "--lb",
+    help="Linux bridge to modify",
+    type=str,
+    required=True
+  )
+  input.add_argument(
+    "-o",
+    "--ovs",
+    help="OVS bridge to modify",
+    type=str,
+    required=True
+  )
 
   action = parser.add_argument_group("actions")
-  action.add_argument("-f", "--force", help="Forcibly reconfigure interface", action="store_true")
-  action.add_argument("action", help="Action to perform", choices=["bootstrap", "retrofit", "revert"], type=str)
+  action.add_argument(
+    "-f",
+    "--force",
+    help="Forcibly reconfigure interface",
+    action="store_true"
+  )
+  action.add_argument(
+    "action",
+    help="Action to perform",
+    choices=["bootstrap", "retrofit", "revert"],
+    type=str
+  )
   args = parser.parse_args()
 
   try:
