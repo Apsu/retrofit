@@ -107,7 +107,7 @@ class Retrofit():
         ]
 
         if len(self.routes):
-          shh("* Routes found: {} *".format(", ".join(self.routes)))
+            shh("* Routes found: {} *".format(", ".join(self.routes)))
 
     def retrofit(self):
         "Retrofit interfaces"
@@ -146,12 +146,12 @@ class Retrofit():
         self.call("service keepalived stop")
 
         shh(
-                "* Replacing references to: '{}' with: '{}'"
-                " in keepalived configs *".format(
-                    self.ovsBridge,
-                    self.linuxBridge
-                )
+            "* Replacing references to: '{}' with: '{}'"
+            " in keepalived configs *".format(
+                self.ovsBridge,
+                self.linuxBridge
             )
+        )
 
         # Modify configs to use the linux bridge
         for file in [
@@ -168,11 +168,11 @@ class Retrofit():
             )
 
         shh(
-                "* Remove IPs and interface: '{}' from: '{}' *".format(
-                    self.iface,
-                    self.ovsBridge
-                )
+            "* Remove IPs and interface: '{}' from: '{}' *".format(
+                self.iface,
+                self.ovsBridge
             )
+        )
 
         # Flush IPs from OVS bridge
         self.call("ip addr flush {}".format(self.ovsBridge))
@@ -189,12 +189,12 @@ class Retrofit():
         self.call("ip link set {} down".format(self.ovsBridge))
 
         shh(
-                "* Add interface: '{}' and veth: '{}' to: '{}'".format(
-                    self.iface,
-                    "phy-" + self.linuxBridge,
-                    self.linuxBridge
-                )
+            "* Add interface: '{}' and veth: '{}' to: '{}'".format(
+                self.iface,
+                "phy-" + self.linuxBridge,
+                self.linuxBridge
             )
+        )
 
         # Add interfaces to linux bridge
         for dev in [self.iface, "phy-" + self.linuxBridge]:
@@ -202,21 +202,21 @@ class Retrofit():
                 "brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
 
         shh(
-                "* Pin MAC address: '{}' to: '{}'".format(
-                    self.mac,
-                    self.linuxBridge
-                )
-              )
+            "* Pin MAC address: '{}' to: '{}'".format(
+                self.mac,
+                self.linuxBridge
+            )
+        )
 
         # Set MAC address of linux bridge
         self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
 
         shh(
-                "* Add veth: '{}' to: '{}'".format(
-                    "ovs-" + self.linuxBridge,
-                    self.ovsBridge
-                )
+            "* Add veth: '{}' to: '{}'".format(
+                "ovs-" + self.linuxBridge,
+                self.ovsBridge
             )
+        )
 
         # Add other veth interface to OVS bridge
         self.call(
@@ -228,11 +228,11 @@ class Retrofit():
         )
 
         shh(
-                "* Add IPs: '{}' to: '{}'".format(
-                    ", ".join(self.ips),
-                    self.linuxBridge
-                )
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.linuxBridge
             )
+        )
 
         # Add IPs to new linux bridge
         for ip in self.ips:
@@ -251,7 +251,7 @@ class Retrofit():
         ]
 
         if len(self.routes):
-          shh("* Add routes: '{}' *".format(", ".join(self.routes)))
+            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
 
         # Add routes
         for route in self.routes:
@@ -278,12 +278,12 @@ class Retrofit():
         self.call("service keepalived stop")
 
         shh(
-                "* Replacing references to: '{}' with: '{}'"
-                " in keepalived configs *".format(
-                    self.linuxBridge,
-                    self.ovsBridge
-                )
+            "* Replacing references to: '{}' with: '{}'"
+            " in keepalived configs *".format(
+                self.linuxBridge,
+                self.ovsBridge
             )
+        )
 
         # Modify configs to use the linux bridge
         for file in [
@@ -300,13 +300,13 @@ class Retrofit():
             )
 
         shh(
-                "* Remove IPs, interface: '{}' and"
-                " veth: '{}' from: '{}' *".format(
-                    self.iface,
-                    "phy-" + self.linuxBridge,
-                    self.linuxBridge
-                )
+            "* Remove IPs, interface: '{}' and"
+            " veth: '{}' from: '{}' *".format(
+                self.iface,
+                "phy-" + self.linuxBridge,
+                self.linuxBridge
             )
+        )
 
         # Flush IPs from linux bridge
         self.call("ip addr flush {}".format(self.linuxBridge))
@@ -317,11 +317,11 @@ class Retrofit():
                 "brctl delif {} {}".format(self.linuxBridge, dev), ignore=True)
 
         shh(
-                "* Remove veth: '{}' from: '{}'".format(
-                    "ovs-" + self.linuxBridge,
-                    self.ovsBridge
-                )
+            "* Remove veth: '{}' from: '{}'".format(
+                "ovs-" + self.linuxBridge,
+                self.ovsBridge
             )
+        )
 
         # Remove other veth interface from OVS bridge
         self.call(
@@ -350,11 +350,11 @@ class Retrofit():
         self.call("brctl delbr {}".format(self.linuxBridge), ignore=True)
 
         shh(
-                "* Add interface: '{}' to: '{}'".format(
-                    self.iface,
-                    self.ovsBridge
-                )
+            "* Add interface: '{}' to: '{}'".format(
+                self.iface,
+                self.ovsBridge
             )
+        )
 
         # Add interface to OVS bridge
         self.call(
@@ -365,11 +365,11 @@ class Retrofit():
         )
 
         shh(
-                "* Add IPs: '{}' to: '{}'".format(
-                    ", ".join(self.ips),
-                    self.ovsBridge
-                )
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.ovsBridge
             )
+        )
 
         # Bring up OVS interface
         self.call("ip link set {} up".format(self.ovsBridge))
@@ -391,7 +391,7 @@ class Retrofit():
         ]
 
         if len(self.routes):
-          shh("* Add routes: '{}' *".format(", ".join(self.routes)))
+            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
 
         # Add routes
         for route in self.routes:
@@ -439,12 +439,12 @@ class Retrofit():
         self.call("service keepalived stop")
 
         shh(
-                "* Replacing references to: '{}' with: '{}'"
-                " in keepalived configs *".format(
-                    self.iface,
-                    self.linuxBridge
-                )
+            "* Replacing references to: '{}' with: '{}'"
+            " in keepalived configs *".format(
+                self.iface,
+                self.linuxBridge
             )
+        )
 
         # Modify configs to use the linux bridge
         for file in [
@@ -466,12 +466,12 @@ class Retrofit():
         self.call("ip addr flush {}".format(self.iface))
 
         shh(
-                "* Add interface: '{}' and veth: '{}' to: '{}'".format(
-                    self.iface,
-                    "phy-" + self.linuxBridge,
-                    self.linuxBridge
-                )
+            "* Add interface: '{}' and veth: '{}' to: '{}'".format(
+                self.iface,
+                "phy-" + self.linuxBridge,
+                self.linuxBridge
             )
+        )
 
         # Add interfaces to linux bridge
         for dev in [self.iface, "phy-" + self.linuxBridge]:
@@ -479,21 +479,21 @@ class Retrofit():
                 "brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
 
         shh(
-                "* Pin MAC address: '{}' to: '{}'".format(
-                    self.mac,
-                    self.linuxBridge
-                )
+            "* Pin MAC address: '{}' to: '{}'".format(
+                self.mac,
+                self.linuxBridge
             )
+        )
 
         # Set MAC address of linux bridge
         self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
 
         shh(
-                "* Add veth: '{}' to: '{}'".format(
-                    "ovs-" + self.linuxBridge,
-                    self.ovsBridge
-                )
+            "* Add veth: '{}' to: '{}'".format(
+                "ovs-" + self.linuxBridge,
+                self.ovsBridge
             )
+        )
 
         # Add other veth interface to OVS bridge
         self.call(
@@ -505,11 +505,11 @@ class Retrofit():
         )
 
         shh(
-                "* Add IPs: '{}' to: '{}'".format(
-                    ", ".join(self.ips),
-                    self.linuxBridge
-                )
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.linuxBridge
             )
+        )
 
         # Add IPs to new linux bridge
         for ip in self.ips:
@@ -528,7 +528,7 @@ class Retrofit():
         ]
 
         if len(self.routes):
-          shh("* Add routes: '{}' *".format(", ".join(self.routes)))
+            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
 
         # Add routes
         for route in self.routes:
