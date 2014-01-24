@@ -628,7 +628,29 @@ def main():
     )
     args = parser.parse_args()
 
+    # Check a binary
+    def check(name):
+        try:
+            devnull = open(os.devnull)
+            subprocess.call(
+                shlex.split(name),
+                stdout=devnull,
+                stderr=devnull
+            ).communicate()
+        except OSError as e:
+            if e.errno == os.errno.ENOENT:
+                raise Exception(
+                    "Error calling {}; might want to install it first.".format(
+                        name
+                    )
+                )
+
     try:
+        check("brctl")
+        check("ip")
+        check("sed")
+        check("ovs-vsctl")
+
         retro = Retrofit(args)
         retro.retrofit()
 
