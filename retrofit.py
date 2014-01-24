@@ -9,21 +9,25 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 
 
 class Retrofit():
-
     "Parse interface and retrofit with OVS"
 
     def __init__(self, args):
+        self.action = args.action
         self.iface = args.iface
         self.linuxBridge = args.lb
         self.ovsBridge = args.ovs
+        self.vethPhy = "phy-" + self.linuxBridge
+        self.vethOvs = "ovs-" + self.linuxBridge
         self.force = args.force
         self.quiet = args.quiet
         self.verbose = args.verbose
 
     def shh(self, msg=""):
+        "-q/--quiet message wrapper"
         if not self.quiet:
             print(msg)
 
@@ -46,11 +50,11 @@ class Retrofit():
         except subprocess.CalledProcessError as e:
             print("Error calling:", cmd, file=sys.stderr)
             print("Exit code:", e.returncode, file=sys.stderr)
-            print("Output:", e.output, file=sys.stderr)
+            print("Output:", e.output.strip(), file=sys.stderr)
             if not ignore:
                 raise Exception("call() error")
             else:
-                print("Ignoring by request.", file=sys.stderr)
+                print("* Ignoring by request.", file=sys.stderr)
                 return ""
 
     def prepare(self, iface):
@@ -58,8 +62,8 @@ class Retrofit():
         # TODO: Check if interface is in a different bridge already
         # raise Exception("{} is in bridge {}, pass -f to force")
 
-        shh()
-        shh("** Gathering information for: '{}' **".format(iface))
+        self.shh()
+        self.shh("** Gathering information for: '{}'".format(iface))
 
         # Get interface config
         dump = self.call("ip -o addr show {}".format(iface), ignore=True)
@@ -80,7 +84,7 @@ class Retrofit():
                 )
             )
 
-        shh("* IPs found: '{}' *".format(", ".join(self.ips)))
+        self.shh("* IPs found: '{}'".format(", ".join(self.ips)))
 
         # Store MAC address
         self.mac = (lambda x: x.group(1) if x else x)(
@@ -96,7 +100,7 @@ class Retrofit():
                 "Interface '{}' has an unexpected or missing MAC address."
                 " The universe may have ended, good luck!".format(iface))
 
-        shh("* MAC found: '{}' *".format(self.mac))
+        self.shh("* MAC found: '{}'".format(self.mac))
 
         # Store routes
         self.routes = [
@@ -107,440 +111,462 @@ class Retrofit():
         ]
 
         if len(self.routes):
-            shh("* Routes found: {} *".format(", ".join(self.routes)))
+            self.shh("* Routes found: {}".format(", ".join(self.routes)))
 
-    def retrofit(self):
+        self.shh()
+
+    def startKeepalived(self):
+        "Start keepalived service"
+
+        self.shh("* Starting keepalived")
+        self.call("service keepalived start")
+
+    def stopKeepalived(self):
+        "Stop keepalived service"
+
+        self.shh("* Stopping keepalived")
+        self.call("service keepalived stop")
+
+    def modifyKeepalived(self, one, two):
+        for file in [
+            file
+            for file in os.listdir("/etc/keepalived/conf.d")
+            if file.startswith("vrrp")
+        ]:
+            self.shh(
+                "* Replacing references to: '{}' with: '{}'"
+                " in keepalived configs".format(
+                    one,
+                    two
+                )
+            )
+            self.call(
+                "sed -i 's/{}/{}/' {}".format(
+                    one,
+                    two,
+                    os.path.join("/etc/keepalived/conf.d", file)
+                )
+            )
+
+    def convertKeepalived(self):
+        "Convert keepalived VRRP configs"
+
+        self.modifyKeepalived(self.ovsBridge, self.linuxBridge)
+
+    def revertKeepalived(self):
+        "Revert keepalived VRRP configs"
+
+        self.modifyKeepalived(self.linuxBridge, self.ovsBridge)
+
+    def bootstrapKeepalived(self):
+        "Bootstrap keepalived VRRP configs"
+
+        self.modifyKeepalived(self.iface, self.linuxBridge)
+
+    def createLinuxBridge(self):
+        "Create linux bridge"
+
+        self.shh("* Creating bridge: '{}'".format(self.linuxBridge))
+        self.call("brctl addbr {}".format(self.linuxBridge))
+        self.bringUp([self.linuxBridge])
+
+    def deleteLinuxBridge(self):
+        "Delete linux bridge"
+
+        self.bringDown([self.linuxBridge])
+        self.shh("* Deleting linux bridge: '{}'".format(self.linuxBridge))
+        self.call("brctl delbr {}".format(self.linuxBridge))
+
+    def createVethPair(self):
+        "Create veth pair"
+
+        self.shh(
+            "* Create veth pair: '{}'".format(
+                ", ".join([self.vethPhy, self.vethOvs])
+            )
+        )
+        self.call(
+            "ip link add name {} type veth peer name {}".format(
+                self.vethPhy,
+                self.vethOvs
+            )
+        )
+        self.bringUp([self.vethPhy, self.vethOvs])
+
+    def deleteVethPair(self):
+        "Delete veth pair"
+
+        self.shh(
+            "* Delete veth pair: '{}'".format(
+                ", ".join([self.vethPhy, self.vethOvs])
+            )
+        )
+        self.call("ip link del {}".format(self.vethPhy))
+
+    def bringUp(self, ifaces):
+        "Bring interfaces up"
+
+        self.shh("* Bringing up interfaces: '{}'".format(", ".join(ifaces)))
+        for iface in ifaces:
+            self.call("ip link set {} up".format(iface))
+
+    def bringDown(self, ifaces):
+        "Bring interfaces down"
+
+        self.shh(
+            "* Bringing down interfaces: '{}'".format(", ".join(ifaces))
+        )
+        for iface in ifaces:
+            self.call("ip link set {} down".format(iface))
+
+    def convertLinuxBridge(self):
+        "Add interfaces to linux bridge"
+
+        self.shh(
+            "* Adding interfaces: '{}' to: '{}'".format(
+                ", ".join([self.iface, self.vethPhy]),
+                self.linuxBridge
+            )
+        )
+        for iface in [self.iface, self.vethPhy]:
+            self.call("brctl addif {} {}".format(self.linuxBridge, iface))
+
+    def revertLinuxBridge(self):
+        "Remove interfaces from linux bridge"
+
+        self.shh(
+            "* Removing interfaces: '{}' from: '{}'".format(
+                ", ".join([self.iface, self.vethPhy]),
+                self.linuxBridge
+            )
+        )
+        for iface in [self.iface, self.vethPhy]:
+            self.call("brctl delif {} {}".format(self.linuxBridge, iface))
+
+    def bootstrapOVSBridge(self):
+        "Bootstrap interfaces in OVS bridge"
+
+        self.shh(
+            "* Adding interface: '{}' to: '{}'".format(
+                self.vethOvs,
+                self.ovsBridge
+            )
+        )
+        self.call(
+            "ovs-vsctl add-port {} {}".format(self.ovsBridge, self.vethOvs)
+        )
+
+    def convertOVSBridge(self):
+        "Convert interfaces in OVS bridge"
+
+        self.shh(
+            "* Removing interface: '{}' from: '{}'".format(
+                self.iface,
+                self.ovsBridge
+            )
+        )
+        self.call(
+            "ovs-vsctl del-port {} {}".format(self.ovsBridge, self.iface)
+        )
+        self.bootstrapOVSBridge()
+
+    def revertOVSBridge(self):
+        "Revert interfaces in OVS bridge"
+
+        self.shh(
+            "* Removing interface: '{}' from: '{}'".format(
+                self.vethOvs,
+                self.ovsBridge
+            )
+        )
+        self.call(
+            "ovs-vsctl del-port {} {}".format(self.ovsBridge, self.vethOvs)
+        )
+
+        self.shh(
+            "* Adding interface: '{}' to: '{}'".format(
+                self.iface,
+                self.ovsBridge
+            )
+        )
+        self.call(
+            "ovs-vsctl add-port {} {}".format(self.ovsBridge, self.iface)
+        )
+
+    def setLinuxBridgeMAC(self):
+        "Pin MAC address of bridge"
+
+        self.shh(
+            "* Pin MAC address: '{}' to: '{}'".format(
+                self.mac,
+                self.linuxBridge
+            )
+        )
+        self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
+
+    def addInterfaceIPs(self):
+        "Add IP addresses to interface"
+
+        self.shh(
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.iface
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr add dev {} {}".format(self.iface, ip))
+
+    def flushInterfaceIPs(self):
+        "Flush IP addresses from interface"
+
+        self.shh(
+            "* Flush IPs: '{}' from: '{}'".format(
+                ", ".join(self.ips),
+                self.iface
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr del {} dev {}".format(ip, self.iface))
+
+    def addOVSBridgeIPs(self):
+        "Add IP addresses to OVS bridge"
+
+        self.shh(
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.ovsBridge
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr add dev {} {}".format(self.ovsBridge, ip))
+
+    def flushOVSBridgeIPs(self):
+        "Flush IP addresses from interface"
+
+        self.shh(
+            "* Flush IPs: '{}' from: '{}'".format(
+                ", ".join(self.ips),
+                self.ovsBridge
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr del {} dev {}".format(ip, self.ovsBridge))
+
+    def addOVSBridgeRoutes(self):
+        "Add routes to OVS bridge"
+
+        routes = [
+            route.replace(self.iface, self.OVSBridge)
+            for route in self.routes
+        ]
+        if len(routes):
+            self.shh("* Add routes: '{}'".format(", ".join(routes)))
+        for route in routes:
+            self.call("ip route add {}".format(route))
+
+    def addLinuxBridgeIPs(self):
+        "Add IP addresses to linux bridge"
+
+        self.shh(
+            "* Add IPs: '{}' to: '{}'".format(
+                ", ".join(self.ips),
+                self.linuxBridge
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr add dev {} {}".format(self.linuxBridge, ip))
+
+    def flushLinuxBridgeIPs(self):
+        "Flush IP addresses from linux bridge"
+
+        self.shh(
+            "* Flush IPs: '{}' from: '{}'".format(
+                ", ".join(self.ips),
+                self.linuxBridge
+            )
+        )
+        for ip in self.ips:
+            self.call("ip addr del {} dev {}".format(ip, self.linuxBridge))
+
+    def addLinuxBridgeRoutes(self):
+        "Add routes to linux bridge"
+
+        routes = [
+            route.replace(self.iface, self.linuxBridge)
+            for route in self.routes
+        ]
+        if len(routes):
+            self.shh("* Add routes: '{}'".format(", ".join(routes)))
+        for route in routes:
+            self.call("ip route add {}".format(route))
+
+    def convert(self):
         "Retrofit interfaces"
 
-        shh("*** Retrofitting interface: '{}' ***".format(self.iface))
+        self.shh("*** Retrofitting interface: '{}'".format(self.iface))
 
         # Get current config
         self.prepare(self.ovsBridge)
 
-        shh()
-        shh("** Starting retrofit **")
-        shh("* Creating bridge and veth pair *")
-
-        # Create linux bridge
-        self.call("brctl addbr {}".format(self.linuxBridge), ignore=True)
-
-        # Create veth pair
-        self.call(
-            "ip link add name phy-{0} type veth peer name ovs-{0}".format(
-                self.linuxBridge),
-            ignore=True
-        )
-
-        # Bring them up
-        for dev in [
-            self.iface,
-            self.linuxBridge,
-            "phy-" + self.linuxBridge,
-            "ovs-" + self.linuxBridge
-        ]:
-            self.call("ip link set {} up".format(dev))
-
-        shh("* Stopping keepalived to reconfigure it *")
+        self.shh("** Starting retrofit")
 
         # Stop keepalived before we change things
-        self.call("service keepalived stop")
+        self.stopKeepalived()
 
-        shh(
-            "* Replacing references to: '{}' with: '{}'"
-            " in keepalived configs *".format(
-                self.ovsBridge,
-                self.linuxBridge
-            )
-        )
+        # Convert keepalived configs
+        self.convertKeepalived()
 
-        # Modify configs to use the linux bridge
-        for file in [
-            file
-            for file in os.listdir("/etc/keepalived/conf.d")
-            if file.startswith("vrrp")
-        ]:
-            self.call(
-                "sed -i 's/{}/{}/' {}".format(
-                    self.ovsBridge,
-                    self.linuxBridge,
-                    os.path.join("/etc/keepalived/conf.d", file)
-                )
-            )
+        # Create linux bridge
+        self.createLinuxBridge()
 
-        shh(
-            "* Remove IPs and interface: '{}' from: '{}' *".format(
-                self.iface,
-                self.ovsBridge
-            )
-        )
+        # Set MAC of linux bridge
+        self.setLinuxBridgeMAC()
 
-        # Flush IPs from OVS bridge
-        self.call("ip addr flush {}".format(self.ovsBridge))
+        # Create veth pair
+        self.createVethPair()
 
-        # Remove interface from OVS bridge
-        self.call(
-            "ovs-vsctl del-port {} {}".format(
-                self.ovsBridge,
-                self.iface),
-            ignore=True
-        )
+        # Flush OVS bridge
+        self.flushOVSBridgeIPs()
 
-        # Bring down OVS interface
-        self.call("ip link set {} down".format(self.ovsBridge))
+        # Convert OVS bridge interfaces
+        self.convertOVSBridge()
 
-        shh(
-            "* Add interface: '{}' and veth: '{}' to: '{}'".format(
-                self.iface,
-                "phy-" + self.linuxBridge,
-                self.linuxBridge
-            )
-        )
+        # Convert linux bridge interfaces
+        self.convertLinuxBridge()
 
-        # Add interfaces to linux bridge
-        for dev in [self.iface, "phy-" + self.linuxBridge]:
-            self.call(
-                "brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
+        # Add IPs to linux bridge
+        self.addLinuxBridgeIPs()
 
-        shh(
-            "* Pin MAC address: '{}' to: '{}'".format(
-                self.mac,
-                self.linuxBridge
-            )
-        )
-
-        # Set MAC address of linux bridge
-        self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
-
-        shh(
-            "* Add veth: '{}' to: '{}'".format(
-                "ovs-" + self.linuxBridge,
-                self.ovsBridge
-            )
-        )
-
-        # Add other veth interface to OVS bridge
-        self.call(
-            "ovs-vsctl add-port {} {}".format(
-                self.ovsBridge,
-                "ovs-" + self.linuxBridge
-            ),
-            ignore=True
-        )
-
-        shh(
-            "* Add IPs: '{}' to: '{}'".format(
-                ", ".join(self.ips),
-                self.linuxBridge
-            )
-        )
-
-        # Add IPs to new linux bridge
-        for ip in self.ips:
-            self.call(
-                "ip addr add dev {} {}".format(
-                    self.linuxBridge,
-                    ip
-                ),
-                ignore=True
-            )
-
-        # Modify route devices
-        self.routes = [
-            route.replace(self.ovsBridge, self.linuxBridge)
-            for route in self.routes
-        ]
-
-        if len(self.routes):
-            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
-
-        # Add routes
-        for route in self.routes:
-            self.call("ip route add {}".format(route))
-
-        shh("* Start keepalived *")
+        # Add routes to linux bridge
+        self.addLinuxBridgeRoutes()
 
         # Start keepalived again
-        self.call("service keepalived start")
+        self.startKeepalived()
 
     def revert(self):
         "Revert interfaces"
 
-        shh("*** Reverting interface: '{}' ***".format(self.iface))
+        self.shh("*** Reverting interface: '{}'".format(self.iface))
 
         # Get current config
         self.prepare(self.linuxBridge)
 
-        shh()
-        shh("** Starting revert **")
-        shh("* Stopping keepalived to reconfigure it *")
+        self.shh("** Starting revert")
 
         # Stop keepalived before we change things
-        self.call("service keepalived stop")
+        self.stopKeepalived()
 
-        shh(
-            "* Replacing references to: '{}' with: '{}'"
-            " in keepalived configs *".format(
-                self.linuxBridge,
-                self.ovsBridge
-            )
-        )
+        # Revert keepalived configs
+        self.revertKeepalived()
 
-        # Modify configs to use the linux bridge
-        for file in [
-            file
-            for file in os.listdir("/etc/keepalived/conf.d")
-            if file.startswith("vrrp")
-        ]:
-            self.call(
-                "sed -i 's/{}/{}/' {}".format(
-                    self.linuxBridge,
-                    self.ovsBridge,
-                    os.path.join("/etc/keepalived/conf.d", file)
-                )
-            )
+        # Flush linux bridge
+        self.flushLinuxBridgeIPs()
 
-        shh(
-            "* Remove IPs, interface: '{}' and"
-            " veth: '{}' from: '{}' *".format(
-                self.iface,
-                "phy-" + self.linuxBridge,
-                self.linuxBridge
-            )
-        )
-
-        # Flush IPs from linux bridge
-        self.call("ip addr flush {}".format(self.linuxBridge))
-
-        # Remove interfaces from linux bridge
-        for dev in [self.iface, "phy-" + self.linuxBridge]:
-            self.call(
-                "brctl delif {} {}".format(self.linuxBridge, dev), ignore=True)
-
-        shh(
-            "* Remove veth: '{}' from: '{}'".format(
-                "ovs-" + self.linuxBridge,
-                self.ovsBridge
-            )
-        )
-
-        # Remove other veth interface from OVS bridge
-        self.call(
-            "ovs-vsctl del-port {} {}".format(
-                self.ovsBridge,
-                "ovs-" + self.linuxBridge
-            ),
-            ignore=True
-        )
-
-        shh("* Delete veth pair *")
-
-        # Delete veth pair
-        self.call(
-            "ip link delete phy-{0}".format(
-                self.linuxBridge),
-            ignore=True
-        )
-
-        shh("* Delete linux bridge: '{}' *".format(self.linuxBridge))
-
-        # Set bridge down
-        self.call("ip link set {} down".format(self.linuxBridge))
+        # Revert linux bridge interfaces
+        self.revertLinuxBridge()
 
         # Delete linux bridge
-        self.call("brctl delbr {}".format(self.linuxBridge), ignore=True)
+        self.deleteLinuxBridge()
 
-        shh(
-            "* Add interface: '{}' to: '{}'".format(
-                self.iface,
-                self.ovsBridge
-            )
-        )
+        # Revert OVS bridge interfaces
+        self.revertOVSBridge()
 
-        # Add interface to OVS bridge
-        self.call(
-            "ovs-vsctl add-port {} {}".format(
-                self.ovsBridge,
-                self.iface),
-            ignore=True
-        )
+        # Delete veth pair
+        self.deleteVethPair()
 
-        shh(
-            "* Add IPs: '{}' to: '{}'".format(
-                ", ".join(self.ips),
-                self.ovsBridge
-            )
-        )
+        # Add IPs to OVS bridge
+        self.addOVSBridgeIPs()
 
-        # Bring up OVS interface
-        self.call("ip link set {} up".format(self.ovsBridge))
-
-        # Add IPs to OVS interface
-        for ip in self.ips:
-            self.call(
-                "ip addr add dev {} {}".format(
-                    self.ovsBridge,
-                    ip
-                ),
-                ignore=True
-            )
-
-        # Modify route devices
-        self.routes = [
-            route.replace(self.linuxBridge, self.ovsBridge)
-            for route in self.routes
-        ]
-
-        if len(self.routes):
-            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
-
-        # Add routes
-        for route in self.routes:
-            self.call("ip route add {}".format(route))
-
-        shh("* Start keepalived *")
+        # Add routes to OVS bridge
+        self.addOVSBridgeRoutes()
 
         # Start keepalived again
-        self.call("service keepalived start")
+        self.startKeepalived()
 
     def bootstrap(self):
         "Bootstrap interfaces"
 
-        shh("*** Bootstrapping interface: '{}' ***".format(self.iface))
+        self.shh("*** Bootstrapping interface: '{}'".format(self.iface))
 
         # Get current config
         self.prepare(self.iface)
 
-        shh()
-        shh("** Starting retrofit **")
-        shh("* Creating bridge and veth pair *")
-
-        # Create linux bridge
-        self.call("brctl addbr {}".format(self.linuxBridge), ignore=True)
-
-        # Create veth pair
-        self.call(
-            "ip link add name phy-{0} type veth peer name ovs-{0}".format(
-                self.linuxBridge),
-            ignore=True
-        )
-
-        # Bring them up
-        for dev in [
-            self.iface,
-            self.linuxBridge,
-            "phy-" + self.linuxBridge,
-            "ovs-" + self.linuxBridge
-        ]:
-            self.call("ip link set {} up".format(dev))
-
-        shh("* Stopping keepalived to reconfigure it *")
+        self.shh("** Starting bootstrap")
 
         # Stop keepalived before we change things
-        self.call("service keepalived stop")
+        self.stopKeepalived()
 
-        shh(
-            "* Replacing references to: '{}' with: '{}'"
-            " in keepalived configs *".format(
-                self.iface,
-                self.linuxBridge
-            )
-        )
+        # Convert keepalived configs
+        self.convertKeepalived()
 
-        # Modify configs to use the linux bridge
-        for file in [
-            file
-            for file in os.listdir("/etc/keepalived/conf.d")
-            if file.startswith("vrrp")
-        ]:
-            self.call(
-                "sed -i 's/{}/{}/' {}".format(
-                    self.iface,
-                    self.linuxBridge,
-                    os.path.join("/etc/keepalived/conf.d", file)
-                )
-            )
+        # Create linux bridge
+        self.createLinuxBridge()
 
-        shh("* Remove IPs from: '{}' *".format(self.iface))
+        # Set MAC of linux bridge
+        self.setLinuxBridgeMAC()
 
-        # Flush IPs from OVS bridge
-        self.call("ip addr flush {}".format(self.iface))
+        # Create veth pair
+        self.createVethPair()
 
-        shh(
-            "* Add interface: '{}' and veth: '{}' to: '{}'".format(
-                self.iface,
-                "phy-" + self.linuxBridge,
-                self.linuxBridge
-            )
-        )
+        # Flush interface IPs
+        self.flushInterfaceIPs()
 
-        # Add interfaces to linux bridge
-        for dev in [self.iface, "phy-" + self.linuxBridge]:
-            self.call(
-                "brctl addif {} {}".format(self.linuxBridge, dev), ignore=True)
+        # Bootstrap linux bridge interfaces
+        self.convertLinuxBridge()
 
-        shh(
-            "* Pin MAC address: '{}' to: '{}'".format(
-                self.mac,
-                self.linuxBridge
-            )
-        )
+        # Bootstrap OVS bridge interfaces
+        self.bootstrapOVSBridge()
 
-        # Set MAC address of linux bridge
-        self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
+        # Add IPs to linux bridge
+        self.addLinuxBridgeIPs()
 
-        shh(
-            "* Add veth: '{}' to: '{}'".format(
-                "ovs-" + self.linuxBridge,
-                self.ovsBridge
-            )
-        )
-
-        # Add other veth interface to OVS bridge
-        self.call(
-            "ovs-vsctl add-port {} {}".format(
-                self.ovsBridge,
-                "ovs-" + self.linuxBridge
-            ),
-            ignore=True
-        )
-
-        shh(
-            "* Add IPs: '{}' to: '{}'".format(
-                ", ".join(self.ips),
-                self.linuxBridge
-            )
-        )
-
-        # Add IPs to new linux bridge
-        for ip in self.ips:
-            self.call(
-                "ip addr add dev {} {}".format(
-                    self.linuxBridge,
-                    ip
-                ),
-                ignore=True
-            )
-
-        # Modify route devices
-        self.routes = [
-            route.replace(self.iface, self.linuxBridge)
-            for route in self.routes
-        ]
-
-        if len(self.routes):
-            shh("* Add routes: '{}' *".format(", ".join(self.routes)))
-
-        # Add routes
-        for route in self.routes:
-            self.call("ip route add {}".format(route))
-
-        shh("* Start keepalived *")
+        # Add routes to linux bridge
+        self.addLinuxBridgeRoutes()
 
         # Start keepalived again
-        self.call("service keepalived start")
+        self.startKeepalived()
+
+    def persist(self):
+        "Persist/clean bridge/veth configuration"
+        if self.action in ["bootstrap", "convert"]:
+            # TODO: Detect platform
+
+            # Ubuntu
+            # TODO:
+            # - Parse /etc/network/interfaces
+            fd = open("/etc/network/interfaces", "r")
+
+            # - Replace self.iface with self.linuxBridge
+            #   - Add "bridge_ports self.iface phy-self.iface"
+            # - Add auto self.iface
+            # - Add iface self.iface inet manual
+            #   - Add up ip link set $IFACE up
+            #   - Add down ip link set $IFACE down
+
+            fd.close()
+            # Safely create temp file
+            #tmp, path = tempfile.mkstemp()
+            # - Write out changes
+
+            # - Write /etc/network/if-{pre-up,post-down}.d/ file
+            #   - Will create/up or down/delete veth pair
+        elif self.action == "revert":
+            pass
+
+    def retrofit(self):
+        "Entry point dispatcher"
+        if self.action == "bootstrap":
+            self.bootstrap()
+        elif self.action == "convert":
+            self.convert()
+        elif self.action == "revert":
+            self.revert()
+
+        self.persist()
 
 
 def main():
+    "Module entry point"
     parser = argparse.ArgumentParser(
         description="This tool will bootstrap, retrofit or revert an RPC"
         " environment for single-NIC/multi-NIC configuration.",
@@ -597,19 +623,14 @@ def main():
     action.add_argument(
         "action",
         help="Action to perform",
-        choices=["bootstrap", "retrofit", "revert"],
+        choices=["bootstrap", "convert", "revert"],
         type=str
     )
     args = parser.parse_args()
 
     try:
         retro = Retrofit(args)
-        if args.action == "bootstrap":
-            retro.bootstrap()
-        elif args.action == "retrofit":
-            retro.retrofit()
-        elif args.action == "revert":
-            retro.revert()
+        retro.retrofit()
 
     except Exception as e:
         print("Aborting due to exception:", e, file=sys.stderr)
