@@ -650,6 +650,7 @@ def main():
         check("ip")
         check("sed")
         check("ovs-vsctl")
+        check("service")
 
         retro = Retrofit(args)
         retro.retrofit()
