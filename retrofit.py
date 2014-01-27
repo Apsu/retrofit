@@ -536,6 +536,8 @@ class Retrofit():
             # - Parse /etc/network/interfaces
             fd = open("/etc/network/interfaces", "r")
 
+            lines = fd.splitlines()
+
             # - Replace self.iface with self.linuxBridge
             #   - Add "bridge_ports self.iface phy-self.iface"
             # - Add auto self.iface
@@ -545,11 +547,14 @@ class Retrofit():
 
             fd.close()
             # Safely create temp file
-            #tmp, path = tempfile.mkstemp()
+            tmp, path = tempfile.mkstemp()
             # - Write out changes
 
             # - Write /etc/network/if-{pre-up,post-down}.d/ file
             #   - Will create/up or down/delete veth pair
+            tmp.close()
+            # Atomically replace interfaces file with temp file
+            # os.rename(path, "/etc/network/interfaces")
         elif self.action == "revert":
             pass
 
@@ -562,7 +567,7 @@ class Retrofit():
         elif self.action == "revert":
             self.revert()
 
-        self.persist()
+        #self.persist()
 
 
 def main():
