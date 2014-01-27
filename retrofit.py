@@ -641,7 +641,7 @@ def main():
                 shlex.split(name),
                 stdout=devnull,
                 stderr=devnull
-            ).communicate()
+            )
         except OSError as e:
             if e.errno == os.errno.ENOENT:
                 raise Exception(
