@@ -25,6 +25,7 @@ class Retrofit():
         self.force = args.force
         self.quiet = args.quiet
         self.verbose = args.verbose
+        self.noKeepalived = args.noKeepalived
 
     def shh(self, msg=""):
         "-q/--quiet message wrapper"
@@ -118,16 +119,26 @@ class Retrofit():
     def startKeepalived(self):
         "Start keepalived service"
 
+        if self.noKeepalived:
+            return
+
         self.shh("* Starting keepalived")
         self.call("service keepalived start")
 
     def stopKeepalived(self):
         "Stop keepalived service"
 
+        if self.noKeepalived:
+            return
+
         self.shh("* Stopping keepalived")
         self.call("service keepalived stop")
 
     def modifyKeepalived(self, one, two):
+        "Keepalived config munger helper"
+        if self.noKeepalived:
+            return
+
         for file in [
             file
             for file in os.listdir("/etc/keepalived/conf.d")
@@ -480,6 +491,7 @@ class Retrofit():
         # Add routes to OVS bridge
         self.addOVSBridgeRoutes()
 
+
         # Start keepalived again
         self.startKeepalived()
 
@@ -619,6 +631,13 @@ def main():
     )
 
     action = parser.add_argument_group("actions")
+    action.add_argument(
+        "-n",
+        "--nokeepalived",
+        meta="noKeepalived",
+        help="Don't try to manage keepalived",
+        action="store_true"
+    )
     action.add_argument(
         "-f",
         "--force",
