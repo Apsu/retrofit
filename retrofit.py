@@ -491,7 +491,6 @@ class Retrofit():
         # Add routes to OVS bridge
         self.addOVSBridgeRoutes()
 
-
         # Start keepalived again
         self.startKeepalived()
 
@@ -547,7 +546,6 @@ class Retrofit():
             # TODO:
             # - Parse /etc/network/interfaces
             fd = open("/etc/network/interfaces", "r")
-
             lines = fd.splitlines()
 
             # - Replace self.iface with self.linuxBridge
