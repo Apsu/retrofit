@@ -230,6 +230,12 @@ class Retrofit():
         for iface in ifaces:
             self.call("ip link set {} down".format(iface))
 
+    def bootstrapLinuxBridge(self):
+        "Bootstrap interfaces in linux bridge"
+
+        # Same as convert for now
+        self.convertLinuxBridge()
+
     def convertLinuxBridge(self):
         "Add interfaces to linux bridge"
 
@@ -315,20 +321,20 @@ class Retrofit():
         )
         self.call("ip link set {} addr {}".format(self.linuxBridge, self.mac))
 
-    def addInterfaceIPs(self):
-        "Add IP addresses to interface"
+    def addIPs(self, iface):
+        "Add IP addresses to specified interface"
 
         self.shh(
             "* Add IPs: '{}' to: '{}'".format(
                 ", ".join(self.ips),
-                self.iface
+                iface
             )
         )
         for ip in self.ips:
-            self.call("ip addr add dev {} {}".format(self.iface, ip))
+            self.call("ip addr add dev {} {}".format(iface, ip))
 
-    def flushInterfaceIPs(self):
-        "Flush IP addresses from interface"
+    def flushIPs(self, iface):
+        "Flush IP addresses from specified interface"
 
         self.shh(
             "* Flush IPs: '{}' from: '{}'".format(
@@ -339,77 +345,63 @@ class Retrofit():
         for ip in self.ips:
             self.call("ip addr del {} dev {}".format(ip, self.iface))
 
-    def addOVSBridgeIPs(self):
-        "Add IP addresses to OVS bridge"
-
-        self.shh(
-            "* Add IPs: '{}' to: '{}'".format(
-                ", ".join(self.ips),
-                self.ovsBridge
-            )
-        )
-        for ip in self.ips:
-            self.call("ip addr add dev {} {}".format(self.ovsBridge, ip))
-
-    def flushOVSBridgeIPs(self):
+    def flushInterfaceIPs(self):
         "Flush IP addresses from interface"
 
-        self.shh(
-            "* Flush IPs: '{}' from: '{}'".format(
-                ", ".join(self.ips),
-                self.ovsBridge
-            )
-        )
-        for ip in self.ips:
-            self.call("ip addr del {} dev {}".format(ip, self.ovsBridge))
+        self.flushIPs(self.iface)
 
-    def addOVSBridgeRoutes(self):
-        "Add routes to OVS bridge"
+    def revertOVSBridgeIPs(self):
+        "Add IP addresses to OVS bridge"
 
-        routes = [
-            route.replace(self.iface, self.OVSBridge)
-            for route in self.routes
-        ]
-        if len(routes):
-            self.shh("* Add routes: '{}'".format(", ".join(routes)))
-        for route in routes:
-            self.call("ip route add {}".format(route))
+        self.addIPs(self.ovsBridge)
 
-    def addLinuxBridgeIPs(self):
+    def flushOVSBridgeIPs(self):
+        "Flush IP addresses from OVS bridge"
+
+        self.flushIPs(self.ovsBridge)
+
+    def convertLinuxBridgeIPs(self):
         "Add IP addresses to linux bridge"
 
-        self.shh(
-            "* Add IPs: '{}' to: '{}'".format(
-                ", ".join(self.ips),
-                self.linuxBridge
-            )
-        )
-        for ip in self.ips:
-            self.call("ip addr add dev {} {}".format(self.linuxBridge, ip))
+        self.addIPs(self.linuxBridge)
+
+    def bootstrapLinuxBridgeIPs(self):
+        "Add IP addresses to linux bridge"
+
+        # Same as convert for now
+        self.convertLinuxBridgeIPs()
 
     def flushLinuxBridgeIPs(self):
         "Flush IP addresses from linux bridge"
 
-        self.shh(
-            "* Flush IPs: '{}' from: '{}'".format(
-                ", ".join(self.ips),
-                self.linuxBridge
-            )
-        )
-        for ip in self.ips:
-            self.call("ip addr del {} dev {}".format(ip, self.linuxBridge))
+        self.flushIPs(self.linuxBridge)
 
-    def addLinuxBridgeRoutes(self):
-        "Add routes to linux bridge"
+    def modRoutes(self, src, dst):
+        "Modify route for src interface and add to dst interface"
 
         routes = [
-            route.replace(self.iface, self.linuxBridge)
+            route.replace(src, dst)
             for route in self.routes
         ]
         if len(routes):
             self.shh("* Add routes: '{}'".format(", ".join(routes)))
         for route in routes:
             self.call("ip route add {}".format(route))
+
+    def convertOVSBridgeRoutes(self):
+        "Convert routes in OVS bridge to linux bridge"
+
+        self.modRoutes(self.ovsBridge, self.linuxBridge)
+
+    def revertLinuxBridgeRoutes(self):
+        "Revert routes from linux bridge to OVS bridge"
+
+        self.modRoutes(self.linuxBridge, self.ovsBridge)
+
+    def bootstrapLinuxBridgeRoutes(self):
+        "Bootstrap routes from interface to linux bridge"
+
+        self.modRoutes(self.iface, self.linuxBridge)
 
     def convert(self):
         "Retrofit interfaces"
@@ -445,11 +437,11 @@ class Retrofit():
         # Convert linux bridge interfaces
         self.convertLinuxBridge()
 
-        # Add IPs to linux bridge
-        self.addLinuxBridgeIPs()
+        # Convert IPs to linux bridge
+        self.convertLinuxBridgeIPs()
 
-        # Add routes to linux bridge
-        self.addLinuxBridgeRoutes()
+        # Convert routes from OVS bridge to linux bridge
+        self.convertOVSBridgeRoutes()
 
         # Start keepalived again
         self.startKeepalived()
@@ -485,11 +477,11 @@ class Retrofit():
         # Delete veth pair
         self.deleteVethPair()
 
-        # Add IPs to OVS bridge
-        self.addOVSBridgeIPs()
+        # Revert IPs to OVS bridge
+        self.revertOVSBridgeIPs()
 
-        # Add routes to OVS bridge
-        self.addOVSBridgeRoutes()
+        # Revert routes from linux bridge to OVS bridge
+        self.revertLinuxBridgeRoutes()
 
         # Start keepalived again
         self.startKeepalived()
@@ -523,16 +515,16 @@ class Retrofit():
         self.flushInterfaceIPs()
 
         # Bootstrap linux bridge interfaces
-        self.convertLinuxBridge()
+        self.bootsrapLinuxBridge()
 
         # Bootstrap OVS bridge interfaces
         self.bootstrapOVSBridge()
 
-        # Add IPs to linux bridge
-        self.addLinuxBridgeIPs()
+        # Bootstrap IPs to linux bridge
+        self.bootstrapLinuxBridgeIPs()
 
-        # Add routes to linux bridge
-        self.addLinuxBridgeRoutes()
+        # Bootstrap routes from interface to linux bridge
+        self.bootstrapLinuxBridgeRoutes()
 
         # Start keepalived again
         self.startKeepalived()
@@ -550,6 +542,7 @@ class Retrofit():
 
             # - Replace self.iface with self.linuxBridge
             #   - Add "bridge_ports self.iface phy-self.iface"
+            #   - Add "hwaddress ether $MAC" to pin MAC
             # - Add auto self.iface
             # - Add iface self.iface inet manual
             #   - Add up ip link set $IFACE up
