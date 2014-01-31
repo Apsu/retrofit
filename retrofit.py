@@ -506,7 +506,7 @@ class Retrofit():
         self.flushInterfaceIPs()
 
         # Bootstrap linux bridge interfaces
-        self.bootsrapLinuxBridge()
+        self.bootstrapLinuxBridge()
 
         # Bootstrap OVS bridge interfaces
         self.bootstrapOVSBridge()
