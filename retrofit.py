@@ -339,11 +339,11 @@ class Retrofit():
         self.shh(
             "* Flush IPs: '{}' from: '{}'".format(
                 ", ".join(self.ips),
-                self.iface
+                iface
             )
         )
         for ip in self.ips:
-            self.call("ip addr del {} dev {}".format(ip, self.iface))
+            self.call("ip addr del {} dev {}".format(ip, iface))
 
     def flushInterfaceIPs(self):
         "Flush IP addresses from interface"
