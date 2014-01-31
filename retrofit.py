@@ -32,7 +32,7 @@ class Retrofit():
         if not self.quiet:
             print(msg)
 
-    def call(self, cmd, ignore=False):
+    def call(self, cmd):
         "Wrap subprocess.check_output"
         try:
             if self.verbose:
@@ -52,7 +52,7 @@ class Retrofit():
             print("Error calling:", cmd, file=sys.stderr)
             print("Exit code:", e.returncode, file=sys.stderr)
             print("Output:", e.output.strip(), file=sys.stderr)
-            if not ignore:
+            if not self.force:
                 raise Exception("call() error")
             else:
                 print("* Ignoring by request.", file=sys.stderr)
@@ -67,7 +67,7 @@ class Retrofit():
         self.shh("** Gathering information for: '{}'".format(iface))
 
         # Get interface config
-        dump = self.call("ip -o addr show {}".format(iface), ignore=True)
+        dump = self.call("ip -o addr show {}".format(iface))
 
         # Store IP addresses
         self.ips = [
@@ -75,15 +75,6 @@ class Retrofit():
             for ip in re.findall("inet6?\s(\S+)", dump)
             if not ip.startswith("fe80")  # Exclude link-local
         ]
-
-        # Check we've got the right thing
-        if not len(self.ips) and not self.force:
-            raise Exception(
-                "Interface '{}' has no IP addresses."
-                " Pass -f to force anyway.".format(
-                    iface
-                )
-            )
 
         self.shh("* IPs found: '{}'".format(", ".join(self.ips)))
 
