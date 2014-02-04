@@ -142,7 +142,7 @@ class Interfaces():
         for index, directive in enumerate(self.directives):
             # Save insertion point if we found it
             if after == directive[0]:
-                insert = index
+                insert = index + 1
                 break
 
         # Bomb if we didn't find an insertion point
