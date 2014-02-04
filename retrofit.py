@@ -12,6 +12,195 @@ import sys
 import tempfile
 
 
+class Interfaces():
+    "Manage /etc/network/interfaces file"
+
+    def __init__(self):
+        # Open file
+        fd = open("/etc/network/interfaces")
+
+        # Make iterator of contents
+        self.iterator = iter(
+            [
+                line.strip()
+                for line in fd.read().splitlines()
+                if line.strip()
+            ]
+        )
+        # Close file
+        fd.close()
+
+        # Parsed directives
+        self.directives = []
+
+        # Do the needful
+        self.parse()
+
+    def parse(self):
+        "Parse super- and sub-directives, and return nested results"
+
+        # For each directive
+        for directive in self.iterator:
+            # If we're on a super, start sub loop
+            while directive.startswith(("iface", "mapping")):
+                sup = None  # Clear super-directive
+                subs = []   # Clear sub-directives
+
+                # For each sub-directive
+                for sub in self.iterator:
+                    # If sub is actually a super
+                    if sub.startswith(
+                        (
+                            "auto",
+                            "allow-",
+                            "iface",
+                            "mapping",
+                            "source"
+                        )
+                    ):
+                        sup = sub         # Set new super
+                        break             # Exit sub loop
+                    # Else it's just a sub, so add it
+                    else:
+                        subs.append(sub)
+
+                # If we found subs, store them
+                if subs:
+                    self.directives.append([directive, subs])
+                # Else just store directive
+                else:
+                    self.directives.append([directive])
+
+                # If we didn't find a super, return
+                if not sup:
+                    return
+
+                directive = sup  # Store super for next inner loop check
+
+            # Not a super here so just add directive
+            self.directives.append([directive])
+
+        # End of iterator, return
+        return
+
+    def save(self):
+        "Pretty-print interface directives"
+
+        # Safely create temp file
+        tmp, path = tempfile.mkstemp()
+
+        # Write out changes
+        for directive in self.directives:
+            # Print directive
+            print(directive[0], file=tmp)
+
+            # If has subs
+            if len(directive) > 1:
+                # Print indented subs
+                for sub in directive[1]:
+                    print("    {}".format(sub), file=tmp)
+            # If super, add a blank line for spacing
+            if directive[0].startswith(("iface", "mapping")):
+                print(file=tmp)
+
+        tmp.close()
+        # Atomically replace interfaces file with temp file
+        os.rename(path, "/etc/network/interfaces")
+
+    def swapDirective(self, one, two):
+        "Swap one directive with another"
+
+        # Guard
+        swapped = False
+
+        # Walk directives
+        for index, directive in enumerate(self.directives):
+            # Swap directive if we found it
+            if one in directive[0]:
+                self.directives[index][0] = directive[0].replace(one, two)
+                swapped = True
+
+        # Bomb on failure
+        if not swapped:
+            raise Exception(
+                "Error swapping directive: '{}' with "
+                "directive: '{}' in interfaces file".format(one, two)
+            )
+
+    def addDirective(self, sup, subs=None, after=None):
+        "Add directive"
+
+        # Clear insertion point
+        insert = None
+
+        # If not specified, add at end
+        if not after:
+            insert = len(self.directives)
+
+        # Walk directives
+        for index, directive in enumerate(self.directives):
+            # Save insertion point if we found it
+            if after == directive[0]:
+                insert = index
+                break
+
+        # Bomb if we didn't find an insertion point
+        if not insert:
+            raise Exception(
+                "Error adding directive: '{}' with "
+                "subs: '{}' to interfaces file".format(sup, subs)
+            )
+
+        # Add directive and subs if any
+        if subs:
+            self.directives.insert(index, [sup, subs])
+        # Otherwise just add directive
+        else:
+            self.directives.insert(index, [sup])
+
+    def addSubs(self, sup, subs):
+        "Add sub-directives to super-directive"
+
+        # Guard
+        added = False
+        for index, directive in enumerate(self.directives):
+            # Append subs (flatly) if we found 'em
+            if sup == directive[0] and len(directive) > 1:
+                self.directives[index][1].extend(subs)
+                added = True
+
+        # Bomb on failure
+        if not added:
+            raise Exception(
+                "Error adding directive: '{}' with "
+                "subs: '{}' to interfaces file".format(sup, subs)
+            )
+
+    def deleteSubs(self, sup, subs):
+        "Delete sub-directives from super-directive"
+
+        # Guard
+        deleted = False
+
+        # Walk directives
+        for index, directive in enumerate(self.directives):
+            # If we found the matching directive with subs
+            if sup == directive[0] and len(directive) > 1:
+                # Filter subs inversely
+                self.directives[index][1] = filter(
+                    lambda x: x if x not in directive[1] else None,
+                    subs
+                )
+                deleted = True
+
+        # Bomb on failure
+        if not deleted:
+            raise Exception(
+                "Error deleting directive: '{}' with "
+                "subs: '{}' from interfaces file".format(sup, subs)
+            )
+
+
 class Retrofit():
     "Parse interface and retrofit with OVS"
 
@@ -522,35 +711,62 @@ class Retrofit():
 
     def persist(self):
         "Persist/clean bridge/veth configuration"
+
+        # Create interface object
+        interfaces = Interfaces()
+
+        # Handle bootstrapping interface/converting OVS bridge to linux bridge
         if self.action in ["bootstrap", "convert"]:
-            # TODO: Detect platform
+            # Do specific swaps by action
+            if self.action == "bootstrap":
+                interfaces.swapDirective(self.iface, self.linuxBridge)
+            elif self.action == "convert":
+                interfaces.swapDirective(self.ovsBridge, self.linuxBridge)
 
-            # Ubuntu
-            # TODO:
-            # - Parse /etc/network/interfaces
-            fd = open("/etc/network/interfaces", "r")
-            lines = fd.splitlines()
+            # Add sub-directives to linux-bridge
+            interfaces.addSubs(
+                "iface lxb-mgmt inet static",
+                [
+                    "bridge_ports {} {}".format(self.iface, self.vethPhy),
+                    "pre-up ip link add name {} "
+                    "type veth peer name {} || true".format(
+                        self.vethPhy,
+                        self.vethOvs
+                    )
+                ]
+            )
 
-            # - Replace self.iface with self.linuxBridge
-            #   - Add "bridge_ports self.iface phy-self.iface"
-            #   - Add "hwaddress ether $MAC" to pin MAC
-            # - Add auto self.iface
-            # - Add iface self.iface inet manual
-            #   - Add up ip link set $IFACE up
-            #   - Add down ip link set $IFACE down
+            # Add new auto directive
+            interfaces.addDirective("auto {}".format(self.iface))
+            # Add new iface directive with subs
+            interfaces.addDirective(
+                "iface {} inet manual".format(self.iface),
+                [
+                    "up ip link set $IFACE up",
+                    "down ip link set $IFACE down"
+                ],
+                after="auto {}".format(self.iface)
+            )
 
-            fd.close()
-            # Safely create temp file
-            tmp, path = tempfile.mkstemp()
-            # - Write out changes
-
-            # - Write /etc/network/if-{pre-up,post-down}.d/ file
-            #   - Will create/up or down/delete veth pair
-            tmp.close()
-            # Atomically replace interfaces file with temp file
-            # os.rename(path, "/etc/network/interfaces")
+        # Handle reversion from linux bridge to OVS bridge
         elif self.action == "revert":
-            pass
+            # Delete sub-directives from linux-bridge
+            interfaces.deleteSubs(
+                "iface lxb-mgmt inet static",
+                [
+                    "bridge_ports {} {}".format(self.iface, self.vethPhy),
+                    "pre-up ip link add name {} "
+                    "type veth peer name {} || true".format(
+                        self.vethPhy,
+                        self.vethOvs
+                    )
+                ]
+            )
+
+            # Swap back to pre-convert config
+            interfaces.swapDirective(self.linuxBridge, self.ovsBridge)
+
+        interfaces.save()
 
     def retrofit(self):
         "Entry point dispatcher"
@@ -561,7 +777,7 @@ class Retrofit():
         elif self.action == "revert":
             self.revert()
 
-        #self.persist()
+        self.persist()
 
 
 def main():
