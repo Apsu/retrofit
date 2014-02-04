@@ -17,18 +17,18 @@ class Interfaces():
 
     def __init__(self):
         # Open file
-        fd = open("/etc/network/interfaces")
+        handle = open("/etc/network/interfaces")
 
         # Make iterator of contents
         self.iterator = iter(
             [
                 line.strip()
-                for line in fd.read().splitlines()
+                for line in handle.read().splitlines()
                 if line.strip()
             ]
         )
         # Close file
-        fd.close()
+        handle.close()
 
         # Parsed directives
         self.directives = []
@@ -87,7 +87,8 @@ class Interfaces():
         "Pretty-print interface directives"
 
         # Safely create temp file
-        tmp, path = tempfile.mkstemp()
+        fd, path = tempfile.mkstemp()
+        tmp = os.fdopen(fd, "w")
 
         # Write out changes
         for directive in self.directives:
