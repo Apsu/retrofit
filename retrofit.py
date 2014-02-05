@@ -677,8 +677,8 @@ class Retrofit():
         # Stop keepalived before we change things
         self.stopKeepalived()
 
-        # Convert keepalived configs
-        self.convertKeepalived()
+        # Bootstrap keepalived configs
+        self.bootstrapKeepalived()
 
         # Create linux bridge
         self.createLinuxBridge()
