@@ -491,7 +491,7 @@ class Retrofit():
         self.stopKeepalived()
 
         # Convert keepalived configs
-        self.convertKeepalived()
+        self.bootstrapKeepalived()
 
         # Create linux bridge
         self.createLinuxBridge()
