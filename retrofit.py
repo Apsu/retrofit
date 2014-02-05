@@ -187,7 +187,7 @@ class Interfaces():
         for index, directive in enumerate(self.directives):
             # If we found the matching directive with subs
             if sup == directive[0] and len(directive) > 1:
-                # Filter subs inversely
+                # Filter subs
                 self.directives[index][1] = list(set(directive[1]) - set(subs))
                 deleted = True
 
