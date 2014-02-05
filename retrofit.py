@@ -136,7 +136,7 @@ class Interfaces():
 
         # If not specified, add at end
         if not after:
-            insert = len(self.directives)
+            insert = len(self.directives) + 1
 
         # Walk directives
         for index, directive in enumerate(self.directives):
@@ -154,10 +154,10 @@ class Interfaces():
 
         # Add directive and subs if any
         if subs:
-            self.directives.insert(index, [sup, subs])
+            self.directives.insert(insert, [sup, subs])
         # Otherwise just add directive
         else:
-            self.directives.insert(index, [sup])
+            self.directives.insert(insert, [sup])
 
     def addSubs(self, sup, subs):
         "Add sub-directives to super-directive"
@@ -188,10 +188,7 @@ class Interfaces():
             # If we found the matching directive with subs
             if sup == directive[0] and len(directive) > 1:
                 # Filter subs inversely
-                self.directives[index][1] = filter(
-                    lambda x: x if x not in directive[1] else None,
-                    subs
-                )
+                self.directives[index][1] = list(set(directive[1]) - set(subs))
                 deleted = True
 
         # Bomb on failure
