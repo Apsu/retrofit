@@ -140,10 +140,19 @@ class Interfaces():
 
         # Walk directives
         for index, directive in enumerate(self.directives):
-            # Save insertion point if we found it
-            if after == directive[0]:
+            # If directive already exists
+            if directive[0] == sup:
+                # Merge if subs are different
+                if len(set(directive[1]) - set(subs)):
+                    self.directives[index][1] = list(
+                        set(directive[1]) +
+                        set(subs)
+                    )
+                # Return because we don't need to insert
+                return
+            # Save last insertion point if we found one
+            elif directive[0] == after:
                 insert = index + 1
-                break
 
         # Bomb if we didn't find an insertion point
         if not insert:
@@ -166,7 +175,7 @@ class Interfaces():
         added = False
         for index, directive in enumerate(self.directives):
             # Append subs (flatly) if we found 'em
-            if sup == directive[0] and len(directive) > 1:
+            if directive[0] == sup and len(directive) > 1:
                 self.directives[index][1].extend(subs)
                 added = True
 
@@ -186,7 +195,7 @@ class Interfaces():
         # Walk directives
         for index, directive in enumerate(self.directives):
             # If we found the matching directive with subs
-            if sup == directive[0] and len(directive) > 1:
+            if directive[0] == sup and len(directive) > 1:
                 # Filter subs
                 self.directives[index][1] = list(set(directive[1]) - set(subs))
                 deleted = True
@@ -718,6 +727,19 @@ class Retrofit():
             # Do specific swaps by action
             if self.action == "bootstrap":
                 interfaces.swapDirective(self.iface, self.linuxBridge)
+
+                # Add new auto directive
+                interfaces.addDirective("auto {}".format(self.iface))
+                # Add new iface directive with subs
+                interfaces.addDirective(
+                    "iface {} inet manual".format(self.iface),
+                    [
+                        "up ip link set $IFACE up",
+                        "down ip link set $IFACE down"
+                    ],
+                    after="auto {}".format(self.iface)
+                )
+
             elif self.action == "convert":
                 interfaces.swapDirective(self.ovsBridge, self.linuxBridge)
 
@@ -732,18 +754,6 @@ class Retrofit():
                         self.vethOvs
                     )
                 ]
-            )
-
-            # Add new auto directive
-            interfaces.addDirective("auto {}".format(self.iface))
-            # Add new iface directive with subs
-            interfaces.addDirective(
-                "iface {} inet manual".format(self.iface),
-                [
-                    "up ip link set $IFACE up",
-                    "down ip link set $IFACE down"
-                ],
-                after="auto {}".format(self.iface)
             )
 
         # Handle reversion from linux bridge to OVS bridge
