@@ -194,9 +194,8 @@ class Interfaces():
 
         # Walk directives
         for index, directive in enumerate(self.directives):
-            # If we found the matching directive with subs
+            # Filter matching directive with subs
             if directive[0] == sup and len(directive) > 1:
-                # Filter subs
                 self.directives[index][1] = list(set(directive[1]) - set(subs))
                 deleted = True
 
@@ -207,11 +206,32 @@ class Interfaces():
                 "subs: '{}' from interfaces file".format(sup, subs)
             )
 
+    def deleteDirective(self, sup):
+        "Delete directive and subs if any"
+
+        # Guard
+        deleted = False
+
+        # Walk directives
+        for index, directive in enumerate(self.directives):
+            # Delete a matching directive
+            if directive[0] == sup:
+                del self.directives[index]
+                deleted = True
+
+        # Bomb on failure
+        if not deleted:
+            raise Exception(
+                "Error deleting directive: '{}' "
+                "from interfaces file".format(sup)
+            )
+
 
 class Retrofit():
     "Parse interface and retrofit with OVS"
 
-    def __init__(self, args):
+    def __init__(self, args, exceptions=[]):
+        self.exceptions = exceptions
         self.action = args.action
         self.iface = args.iface
         self.linuxBridge = args.lb
@@ -221,7 +241,6 @@ class Retrofit():
         self.force = args.force
         self.quiet = args.quiet
         self.verbose = args.verbose
-        self.noKeepalived = args.noKeepalived
 
     def shh(self, msg=""):
         "-q/--quiet message wrapper"
@@ -306,7 +325,7 @@ class Retrofit():
     def startKeepalived(self):
         "Start keepalived service"
 
-        if self.noKeepalived:
+        if "keepalived" in self.exceptions:
             return
 
         self.shh("* Starting keepalived")
@@ -315,7 +334,7 @@ class Retrofit():
     def stopKeepalived(self):
         "Stop keepalived service"
 
-        if self.noKeepalived:
+        if "keepalived" in self.exceptions:
             return
 
         self.shh("* Stopping keepalived")
@@ -323,7 +342,8 @@ class Retrofit():
 
     def modifyKeepalived(self, one, two):
         "Keepalived config munger helper"
-        if self.noKeepalived:
+
+        if "keepalived" in self.exceptions:
             return
 
         for file in [
@@ -758,7 +778,7 @@ class Retrofit():
 
         # Handle reversion from linux bridge to OVS bridge
         elif self.action == "revert":
-            # Delete sub-directives from linux-bridge
+            # Delete sub-directives from linux bridge
             interfaces.deleteSubs(
                 "iface lxb-mgmt inet static",
                 [
@@ -770,6 +790,9 @@ class Retrofit():
                     )
                 ]
             )
+
+            # Delete auto directive for linux bridge
+            interfaces.deleteDirective("auto {}".format(self.linuxBridge))
 
             # Swap back to pre-convert config
             interfaces.swapDirective(self.linuxBridge, self.ovsBridge)
@@ -838,13 +861,6 @@ def main():
 
     action = parser.add_argument_group("actions")
     action.add_argument(
-        "-n",
-        "--nokeepalived",
-        dest="noKeepalived",
-        help="Don't try to manage keepalived",
-        action="store_true"
-    )
-    action.add_argument(
         "-f",
         "--force",
         help="Forcibly reconfigure interface",
@@ -859,7 +875,7 @@ def main():
     args = parser.parse_args()
 
     # Check a binary
-    def check(name):
+    def check(name, exception=False):
         try:
             devnull = open(os.devnull)
             subprocess.call(
@@ -869,6 +885,9 @@ def main():
             )
         except OSError as e:
             if e.errno == os.errno.ENOENT:
+                # Add to exception list?
+                if exception:
+                    return name
                 raise Exception(
                     "Error calling {}; might want to install it first.".format(
                         name
@@ -876,13 +895,15 @@ def main():
                 )
 
     try:
+        exceptions = []  # Flag these as missing but proceed
         check("brctl")
         check("ip")
         check("sed")
         check("ovs-vsctl")
         check("service")
+        exceptions.extend(check("keepalived", exception=True))
 
-        retro = Retrofit(args)
+        retro = Retrofit(args, exceptions)
         retro.retrofit()
 
     except Exception as e:
