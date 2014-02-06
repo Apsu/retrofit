@@ -901,7 +901,7 @@ def main():
         check("sed")
         check("ovs-vsctl")
         check("service")
-        exceptions.extend(check("keepalived", exception=True))
+        exceptions.append(check("keepalived", exception=True))
 
         retro = Retrofit(args, exceptions)
         retro.retrofit()
