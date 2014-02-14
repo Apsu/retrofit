@@ -111,32 +111,17 @@ class Interfaces():
     def swapDirective(self, one, two):
         "Swap one directive with another"
 
-        # Guard
-        swapped = False
-
         # Walk directives
         for index, directive in enumerate(self.directives):
             # Swap directive if we found it
             if one in directive[0]:
                 self.directives[index][0] = directive[0].replace(one, two)
-                swapped = True
 
-        # Bomb on failure
-        if not swapped:
-            raise Exception(
-                "Error swapping directive: '{}' with "
-                "directive: '{}' in interfaces file".format(one, two)
-            )
-
-    def addDirective(self, sup, subs=None, after=None):
+    def addDirective(self, sup, subs=None, after=None, before=None):
         "Add directive"
 
         # Clear insertion point
         insert = None
-
-        # If not specified, add at end
-        if not after:
-            insert = len(self.directives) + 1
 
         # Walk directives
         for index, directive in enumerate(self.directives):
@@ -153,13 +138,15 @@ class Interfaces():
             # Save last insertion point if we found one
             elif directive[0] == after:
                 insert = index + 1
+            elif directive[0] == before:
+                insert = index - 1
 
-        # Bomb if we didn't find an insertion point
-        if not insert:
-            raise Exception(
-                "Error adding directive: '{}' with "
-                "subs: '{}' to interfaces file".format(sup, subs)
-            )
+        # If before requested but not found, add at beginning
+        if before and not insert:
+            insert = 0
+        # If after not specified or insertion not found, add at end
+        elif not after or not insert:
+            insert = len(self.directives) + 1
 
         # Add directive and subs if any
         if subs:
@@ -171,60 +158,29 @@ class Interfaces():
     def addSubs(self, sup, subs):
         "Add sub-directives to super-directive"
 
-        # Guard
-        added = False
+        # Walk directives
         for index, directive in enumerate(self.directives):
             # Append subs (flatly) if we found 'em
             if directive[0] == sup and len(directive) > 1:
                 self.directives[index][1].extend(subs)
-                added = True
-
-        # Bomb on failure
-        if not added:
-            raise Exception(
-                "Error adding directive: '{}' with "
-                "subs: '{}' to interfaces file".format(sup, subs)
-            )
 
     def deleteSubs(self, sup, subs):
         "Delete sub-directives from super-directive"
-
-        # Guard
-        deleted = False
 
         # Walk directives
         for index, directive in enumerate(self.directives):
             # Filter matching directive with subs
             if directive[0] == sup and len(directive) > 1:
                 self.directives[index][1] = list(set(directive[1]) - set(subs))
-                deleted = True
-
-        # Bomb on failure
-        if not deleted:
-            raise Exception(
-                "Error deleting directive: '{}' with "
-                "subs: '{}' from interfaces file".format(sup, subs)
-            )
 
     def deleteDirective(self, sup):
         "Delete directive and subs if any"
-
-        # Guard
-        deleted = False
 
         # Walk directives
         for index, directive in enumerate(self.directives):
             # Delete a matching directive
             if directive[0] == sup:
                 del self.directives[index]
-                deleted = True
-
-        # Bomb on failure
-        if not deleted:
-            raise Exception(
-                "Error deleting directive: '{}' "
-                "from interfaces file".format(sup)
-            )
 
 
 class Retrofit():
@@ -762,6 +718,12 @@ class Retrofit():
 
             elif self.action == "convert":
                 interfaces.swapDirective(self.ovsBridge, self.linuxBridge)
+
+            # Add auto directive for linux bridge
+            interfaces.addDirective(
+                "auto {}".format(self.linuxBridge),
+                before="iface lxb-mgmt inet static"
+            )
 
             # Add sub-directives to linux-bridge
             interfaces.addSubs(
