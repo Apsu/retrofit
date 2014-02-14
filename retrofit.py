@@ -732,6 +732,10 @@ class Retrofit():
                 "iface {} inet static".format(self.linuxBridge),
                 [
                     "bridge_ports {} {}".format(self.iface, self.vethPhy),
+                    "pre-up ip link set dev $IFACE addr $(ip -o link show {} "
+                    "| sed -nr 's|link/ether (\S+)|\1|p') || true".format(
+                        self.iface,
+                    ),
                     "pre-up ip link add name {} "
                     "type veth peer name {} || true".format(
                         self.vethPhy,
@@ -747,6 +751,10 @@ class Retrofit():
                 "iface {} inet static".format(self.linuxBridge),
                 [
                     "bridge_ports {} {}".format(self.iface, self.vethPhy),
+                    "pre-up ip link set dev $IFACE addr $(ip -o link show {} "
+                    "| sed -nr 's|link/ether (\S+)|\1|p') || true".format(
+                        self.iface,
+                    ),
                     "pre-up ip link add name {} "
                     "type veth peer name {} || true".format(
                         self.vethPhy,
