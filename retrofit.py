@@ -142,11 +142,13 @@ class Interfaces():
                 insert = index - 1
 
         # If before requested but not found, add at beginning
-        if before and not insert:
-            insert = 0
-        # If after not specified or insertion not found, add at end
-        elif not after or not insert:
-            insert = len(self.directives) + 1
+        if before:
+            if not insert:
+                insert = 0
+        # If after specified but not found, add at end
+        elif after:
+            if not insert:
+                insert = len(self.directives) + 1
 
         # Add directive and subs if any
         if subs:
@@ -722,12 +724,12 @@ class Retrofit():
             # Add auto directive for linux bridge
             interfaces.addDirective(
                 "auto {}".format(self.linuxBridge),
-                before="iface lxb-mgmt inet static"
+                before="iface {} inet static".format(self.linuxBridge)
             )
 
             # Add sub-directives to linux-bridge
             interfaces.addSubs(
-                "iface lxb-mgmt inet static",
+                "iface {} inet static".format(self.linuxBridge),
                 [
                     "bridge_ports {} {}".format(self.iface, self.vethPhy),
                     "pre-up ip link add name {} "
@@ -742,7 +744,7 @@ class Retrofit():
         elif self.action == "revert":
             # Delete sub-directives from linux bridge
             interfaces.deleteSubs(
-                "iface lxb-mgmt inet static",
+                "iface {} inet static".format(self.linuxBridge),
                 [
                     "bridge_ports {} {}".format(self.iface, self.vethPhy),
                     "pre-up ip link add name {} "
