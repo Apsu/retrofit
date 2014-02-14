@@ -139,7 +139,16 @@ class Interfaces():
             elif directive[0] == after:
                 insert = index + 1
             elif directive[0] == before:
-                insert = index - 1
+                insert = index
+
+        print(
+            "Directive: {}, Before: {}, After: {}, Insert: {}".format(
+                sup,
+                before,
+                after,
+                insert
+            )
+        )
 
         # If before requested but not found, add at beginning
         if before:
