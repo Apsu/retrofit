@@ -81,7 +81,7 @@ class Interfaces():
         # End of iterator, return
         return
 
-    def save(self):
+    def save(self, simulate=False):
         """Pretty-print interface directives."""
 
         # Safely create temp file
@@ -103,8 +103,15 @@ class Interfaces():
                 print(file=tmp)
 
         tmp.close()
-        # Atomically replace interfaces file with temp file
-        os.rename(path, "/etc/network/interfaces")
+        if simulate is True:
+            msg = (
+                'Changes to the interface files have not been made but you'
+                ' can review the purposed changes here "{}"'.format(path)
+            )
+            print(msg)
+        else:
+            # Atomically replace interfaces file with temp file
+            os.rename(path, "/etc/network/interfaces")
 
     def swapdirective(self, one, two):
         """Swap one directive with another."""
@@ -785,10 +792,7 @@ class Retrofit():
             # Swap back to pre-convert config
             interfaces.swapdirective(self.linuxbridge, self.ovsbridge)
 
-        if self.simulate:
-            print('Changes to the interface files have not been made.')
-        else:
-            interfaces.save()
+        interfaces.save(simulate=self.simulate)
 
     def retrofit(self):
         """Entry point dispatcher."""
