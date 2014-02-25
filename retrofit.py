@@ -118,25 +118,31 @@ class Interfaces():
     def adddirective(self, sup, subs=None, after=None, before=None):
         """Add directive."""
 
-        # Clear insertion point
-        insert = None
+        def _get_index(directives):
+            """Clear insertion point"""
+            iface_insert = None
+            # Walk directives
+            for index, directive in enumerate(directives):
+                # If directive already exists
+                if directive[0] == sup and len(directive) > 2:
+                    # Merge if subs are different
+                    if len(set(directive[1]) - set(subs)):
+                        _directives = list(set(directive[1])) + list(set(subs))
+                        directives[index][1] = _directives
 
-        # Walk directives
-        for index, directive in enumerate(self.directives):
-            # If directive already exists
-            if directive[0] == sup:
-                # Merge if subs are different
-                if len(set(directive[1]) - set(subs)):
-                    _directives = list(set(directive[1])) + list(set(subs))
-                    self.directives[index][1] = _directives
+                    # Return because we don't need to insert
+                    return
+                # Save last insertion point if we found one
+                elif directive[0] == after:
+                    iface_insert = index + 1
+                elif directive[0] == before:
+                    iface_insert = index
+            return iface_insert
 
-                # Return because we don't need to insert
-                return
-            # Save last insertion point if we found one
-            elif directive[0] == after:
-                insert = index + 1
-            elif directive[0] == before:
-                insert = index
+
+        insert = _get_index(directives=self.directives)
+        if insert is None:
+            return
 
         # If before requested but not found, add at beginning
         if before:
@@ -213,6 +219,7 @@ class Retrofit():
         self.quiet = args.quiet
         self.verbose = args.verbose
         self.simulate = args.simulate
+        self.no_persist = args.no_persist
 
         self.ips = None
         self.mac = None
@@ -793,7 +800,8 @@ class Retrofit():
             raise SystemExit(traceback.format_exc())
         else:
             action()
-            self.persist()
+            if self.no_persist is False:
+                self.persist()
 
 
 def check(name, exception=False):
@@ -866,7 +874,12 @@ def main():
         help="Forcibly reconfigure interface",
         action="store_true"
     )
-    action = parser.add_argument_group("actions")
+    action.add_argument(
+        "--no-persist",
+        help="Disable persistent changes",
+        action="store_true",
+        default=False
+    )
     action.add_argument(
         "--simulate",
         help="Run no commands but simulate all actions",
