@@ -106,7 +106,7 @@ class Interfaces():
         if simulate is True:
             msg = (
                 'Changes to the interface files have not been made but you'
-                ' can review the purposed changes here "{}"'.format(path)
+                ' can review the proposed changes here "{}"'.format(path)
             )
             print(msg)
         else:
