@@ -234,13 +234,13 @@ class Retrofit():
 
     def shh(self, msg=""):
         """-q/--quiet message wrapper."""
-        if not self.quiet:
+        if self.quiet is True:
             print(msg)
 
     def call(self, cmd, simulate=False):
         """Wrap subprocess.check_output."""
         try:
-            if self.verbose or self.simulate:
+            if self.verbose is True or self.simulate is True:
                 print("Calling: {}".format(cmd))
 
             if simulate is False:
@@ -250,7 +250,7 @@ class Retrofit():
                     universal_newlines=True
                 ).strip()
 
-                if self.verbose and output:
+                if self.verbose is True and output:
                     print("-> Output: {}".format(output))
 
                 return output
@@ -261,7 +261,7 @@ class Retrofit():
             print("Error calling:", cmd, file=sys.stderr)
             print("Exit code:", e.returncode, file=sys.stderr)
             print("Output:", e.output.strip(), file=sys.stderr)
-            if not self.force:
+            if self.force is True:
                 raise Exception("call() error")
             else:
                 print("* Ignoring by request.", file=sys.stderr)
@@ -839,13 +839,15 @@ def main():
         "-v",
         "--verbose",
         help="Verbose output of steps taken",
-        action="store_true"
+        action="store_true",
+        default=False
     )
     output.add_argument(
         "-q",
         "--quiet",
         help="Only output errors (to stderr)",
-        action="store_true"
+        action="store_true",
+        default=False
     )
 
     user_input = parser.add_argument_group("user_input arguments")
@@ -876,7 +878,8 @@ def main():
         "-f",
         "--force",
         help="Forcibly reconfigure interface",
-        action="store_true"
+        action="store_true",
+        default=False,
     )
     action.add_argument(
         "--no-persist",
