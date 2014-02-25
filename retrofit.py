@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
 # Yay python 3.x
-from __future__ import print_function, generators, division, nested_scopes
+from __future__ import print_function
+from __future__ import generators
+from __future__ import division
+from __future__ import nested_scopes
 
 import argparse
 import os
@@ -21,8 +24,9 @@ class Interfaces():
         handle = open("/etc/network/interfaces")
 
         # Make iterator of contents
+        # l = line from read()
         line_buffer = [
-            line.strip() for line in handle.read().splitlines() if line.strip()
+            l.strip() for l in handle.read().splitlines() if l.strip()
         ]
         self.iterator = iter(line_buffer)
 
@@ -143,12 +147,23 @@ class Interfaces():
             if not insert:
                 insert = len(self.directives) + 1
 
-        # Add directive and subs if any
-        if subs:
-            self.directives.insert(insert, [sup, subs])
-        # Otherwise just add directive
-        else:
-            self.directives.insert(insert, [sup])
+        try:
+            # Add directive and subs if any
+            if subs:
+                self.directives.insert(insert, [sup, subs])
+            # Otherwise just add directive
+            else:
+                self.directives.insert(insert, [sup])
+        except Exception:
+            print(traceback.format_exc())
+            msg = (
+                'Failed when saving persistent network setup.'
+                ' known args for operation = insert: {} sub: {}'
+                ' subs: {} after: {} before: {}'.format(
+                    insert, sup, subs, after, before
+                )
+            )
+            print(msg)
 
     def addsubs(self, sup, subs):
         """Add sub-directives to super-directive."""
@@ -197,6 +212,7 @@ class Retrofit():
         self.force = args.force
         self.quiet = args.quiet
         self.verbose = args.verbose
+        self.simulate = args.simulate
 
         self.ips = None
         self.mac = None
@@ -207,22 +223,26 @@ class Retrofit():
         if not self.quiet:
             print(msg)
 
-    def call(self, cmd):
+    def call(self, cmd, simulate=False):
         """Wrap subprocess.check_output."""
         try:
-            if self.verbose:
+            if self.verbose or self.simulate:
                 print("Calling: {}".format(cmd))
 
-            output = subprocess.check_output(
-                shlex.split(cmd),
-                stderr=subprocess.STDOUT,
-                universal_newlines=True
-            ).strip()
+            if simulate is False:
+                output = subprocess.check_output(
+                    shlex.split(cmd),
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                ).strip()
 
-            if self.verbose and len(output):
-                print("-> Output: {}".format(output))
+                if self.verbose and output:
+                    print("-> Output: {}".format(output))
 
-            return output
+                return output
+            else:
+                return True
+
         except subprocess.CalledProcessError as e:
             print("Error calling:", cmd, file=sys.stderr)
             print("Exit code:", e.returncode, file=sys.stderr)
@@ -235,7 +255,7 @@ class Retrofit():
 
     def prepare(self, iface):
         """Gather information."""
-        # TODO: Check if interface is in a different bridge already
+        # TODO(evan): Check if interface is in a different bridge already
         # raise Exception("{} is in bridge {}, pass -f to force")
 
         self.shh()
@@ -246,20 +266,15 @@ class Retrofit():
 
         # Store IP addresses
         self.ips = [
-            ip
-            for ip in re.findall("inet6?\s(\S+)", dump)
+            ip for ip in re.findall("inet6?\s(\S+)", dump)
             if not ip.startswith("fe80")  # Exclude link-local
         ]
 
         self.shh("* IPs found: '{}'".format(", ".join(self.ips)))
 
         # Store MAC address
-        self.mac = (lambda x: x.group(1) if x else x)(
-            re.search(
-                "link/ether\s(\S+)",
-                dump
-            )
-        )
+        self.mac = (lambda x: x.group(1) if x else x)
+        self.mac = self.mac(re.search("link/ether\s(\S+)", dump))
 
         # Can has MAC?
         if not self.mac:
@@ -270,10 +285,11 @@ class Retrofit():
         self.shh("* MAC found: '{}'".format(self.mac))
 
         # Store routes
+        local_routes = self.call("ip route list".format(iface)).splitlines()
+
+        # Exclude automatic routes
         self.routes = [
-            " ".join(route.split())
-            for route in self.call("ip route list".format(iface)).splitlines()
-            # Exclude automatic routes
+            " ".join(route.split()) for route in local_routes
             if iface in route and "kernel" not in route
         ]
 
@@ -288,7 +304,7 @@ class Retrofit():
             return
 
         self.shh("* Starting keepalived")
-        self.call("service keepalived start")
+        self.call("service keepalived start", simulate=self.simulate)
 
     def stopkeepalived(self):
         """Stop keepalived service."""
@@ -296,7 +312,7 @@ class Retrofit():
             return
 
         self.shh("* Stopping keepalived")
-        self.call("service keepalived stop")
+        self.call("service keepalived stop", simulate=self.simulate)
 
     def modifykeepalived(self, one, two):
         """Keepalived config munger helper."""
@@ -307,17 +323,12 @@ class Retrofit():
         for vrrp_file in vrrp_files:
             self.shh(
                 "* Replacing references to: '{}' with: '{}'"
-                " in keepalived configs".format(
-                    one,
-                    two
-                )
+                " in keepalived configs".format(one, two)
             )
+            vrrp_path = os.path.join("/etc/keepalived/conf.d", vrrp_file)
             self.call(
-                "sed -i 's/{}/{}/' {}".format(
-                    one,
-                    two,
-                    os.path.join("/etc/keepalived/conf.d", vrrp_file)
-                )
+                "sed -i 's/{}/{}/' {}".format(one, two, vrrp_path),
+                simulate=self.simulate
             )
 
     def convertkeepalived(self):
@@ -335,14 +346,20 @@ class Retrofit():
     def createlinuxbridge(self):
         """Create linux bridge."""
         self.shh("* Creating bridge: '{}'".format(self.linuxbridge))
-        self.call("brctl addbr {}".format(self.linuxbridge))
+        self.call(
+            "brctl addbr {}".format(self.linuxbridge),
+            simulate=self.simulate
+        )
         self.bringup([self.linuxbridge])
 
     def deletelinuxbridge(self):
         """Delete linux bridge."""
         self.bringdown([self.linuxbridge])
         self.shh("* Deleting linux bridge: '{}'".format(self.linuxbridge))
-        self.call("brctl delbr {}".format(self.linuxbridge))
+
+        self.call(
+            "brctl delbr {}".format(self.linuxbridge), simulate=self.simulate
+        )
 
     def createvethpair(self):
         """Create veth pair."""
@@ -351,13 +368,12 @@ class Retrofit():
                 ", ".join([self.vethphy, self.vethovs])
             )
         )
-        self.call(
-            "ip link add name {} type veth peer name {}".format(
-                self.vethphy,
-                self.vethovs
+        if not self.simulate:
+            cmd = "ip link add name {} type veth peer name {}".format(
+                self.vethphy, self.vethovs
             )
-        )
-        self.bringup([self.vethphy, self.vethovs])
+            self.call(cmd, simulate=self.simulate)
+            self.bringup([self.vethphy, self.vethovs])
 
     def deletevethpair(self):
         """Delete veth pair."""
@@ -366,21 +382,25 @@ class Retrofit():
                 ", ".join([self.vethphy, self.vethovs])
             )
         )
-        self.call("ip link del {}".format(self.vethphy))
+        self.call(
+            "ip link del {}".format(self.vethphy), simulate=self.simulate
+        )
 
     def bringup(self, ifaces):
         """Bring interfaces up."""
         self.shh("* Bringing up interfaces: '{}'".format(", ".join(ifaces)))
         for iface in ifaces:
-            self.call("ip link set {} up".format(iface))
+            self.call(
+                "ip link set {} up".format(iface), simulate=self.simulate
+            )
 
     def bringdown(self, ifaces):
         """Bring interfaces down."""
-        self.shh(
-            "* Bringing down interfaces: '{}'".format(", ".join(ifaces))
-        )
+        self.shh("* Bringing down interfaces: '{}'".format(", ".join(ifaces)))
         for iface in ifaces:
-            self.call("ip link set {} down".format(iface))
+            self.call(
+                "ip link set {} down".format(iface), simulate=self.simulate
+            )
 
     def bootstraplinuxbridge(self):
         """Bootstrap interfaces in linux bridge."""
@@ -389,25 +409,31 @@ class Retrofit():
 
     def convertlinuxbridge(self):
         """Add interfaces to linux bridge."""
+        interfaces = ", ".join([self.iface, self.vethphy])
         self.shh(
             "* Adding interfaces: '{}' to: '{}'".format(
-                ", ".join([self.iface, self.vethphy]),
-                self.linuxbridge
+                interfaces, self.linuxbridge
             )
         )
         for iface in [self.iface, self.vethphy]:
-            self.call("brctl addif {} {}".format(self.linuxbridge, iface))
+            self.call(
+                "brctl addif {} {}".format(self.linuxbridge, iface),
+                simulate=self.simulate
+            )
 
     def revertlinuxbridge(self):
         """Remove interfaces from linux bridge."""
+        interfaces = ", ".join([self.iface, self.vethphy])
         self.shh(
             "* Removing interfaces: '{}' from: '{}'".format(
-                ", ".join([self.iface, self.vethphy]),
-                self.linuxbridge
+                interfaces, self.linuxbridge
             )
         )
         for iface in [self.iface, self.vethphy]:
-            self.call("brctl delif {} {}".format(self.linuxbridge, iface))
+            self.call(
+                "brctl delif {} {}".format(self.linuxbridge, iface),
+                simulate=self.simulate
+            )
 
     def bootstrapovsbridge(self):
         """Bootstrap interfaces in OVS bridge."""
@@ -418,7 +444,8 @@ class Retrofit():
             )
         )
         self.call(
-            "ovs-vsctl add-port {} {}".format(self.ovsbridge, self.vethovs)
+            "ovs-vsctl add-port {} {}".format(self.ovsbridge, self.vethovs),
+            simulate=self.simulate
         )
 
     def convertovsbridge(self):
@@ -430,7 +457,8 @@ class Retrofit():
             )
         )
         self.call(
-            "ovs-vsctl del-port {} {}".format(self.ovsbridge, self.iface)
+            "ovs-vsctl del-port {} {}".format(self.ovsbridge, self.iface),
+            simulate=self.simulate
         )
         self.bootstrapovsbridge()
 
@@ -442,8 +470,10 @@ class Retrofit():
                 self.ovsbridge
             )
         )
+
         self.call(
-            "ovs-vsctl del-port {} {}".format(self.ovsbridge, self.vethovs)
+            "ovs-vsctl del-port {} {}".format(self.ovsbridge, self.vethovs),
+            simulate=self.simulate
         )
 
         self.shh(
@@ -453,7 +483,8 @@ class Retrofit():
             )
         )
         self.call(
-            "ovs-vsctl add-port {} {}".format(self.ovsbridge, self.iface)
+            "ovs-vsctl add-port {} {}".format(self.ovsbridge, self.iface),
+            simulate=self.simulate
         )
 
     def setlinuxbridgemac(self):
@@ -464,7 +495,11 @@ class Retrofit():
                 self.linuxbridge
             )
         )
-        self.call("ip link set {} addr {}".format(self.linuxbridge, self.mac))
+
+        self.call(
+            "ip link set {} addr {}".format(self.linuxbridge, self.mac),
+            simulate=self.simulate
+        )
 
     def addips(self, iface):
         """Add IP addresses to specified interface."""
@@ -475,7 +510,10 @@ class Retrofit():
             )
         )
         for ip in self.ips:
-            self.call("ip addr add dev {} {}".format(iface, ip))
+            self.call(
+                "ip addr add dev {} {}".format(iface, ip),
+                simulate=self.simulate
+            )
 
     def fluships(self, iface):
         """Flush IP addresses from specified interface."""
@@ -486,7 +524,10 @@ class Retrofit():
             )
         )
         for ip in self.ips:
-            self.call("ip addr del {} dev {}".format(ip, iface))
+            self.call(
+                "ip addr del {} dev {}".format(ip, iface),
+                simulate=self.simulate
+            )
 
     def flushinterfaceips(self):
         """Flush IP addresses from interface."""
@@ -522,7 +563,7 @@ class Retrofit():
         if len(routes):
             self.shh("* Add routes: '{}'".format(", ".join(routes)))
         for route in routes:
-            self.call("ip route add {}".format(route))
+            self.call("ip route add {}".format(route), simulate=self.simulate)
 
     def convertovsbridgeroutes(self):
         """Convert routes in OVS bridge to linux bridge."""
@@ -737,7 +778,10 @@ class Retrofit():
             # Swap back to pre-convert config
             interfaces.swapdirective(self.linuxbridge, self.ovsbridge)
 
-        interfaces.save()
+        if self.simulate:
+            print('Changes to the interface files have not been made.')
+        else:
+            interfaces.save()
 
     def retrofit(self):
         """Entry point dispatcher."""
@@ -752,20 +796,17 @@ class Retrofit():
             self.persist()
 
 
-# Check a binary
 def check(name, exception=False):
+    """Check a binary."""
     try:
         devnull = open(os.devnull)
-        subprocess.call(
-            shlex.split(name),
-            stdout=devnull,
-            stderr=devnull
-        )
+        subprocess.call(shlex.split(name), stdout=devnull, stderr=devnull)
     except OSError as e:
         if e.errno == os.errno.ENOENT:
             # Add to exception list?
             if exception:
                 return name
+
             msg = "Error calling {}; Is it installed?".format(name)
             raise Exception(msg)
 
@@ -825,6 +866,13 @@ def main():
         help="Forcibly reconfigure interface",
         action="store_true"
     )
+    action = parser.add_argument_group("actions")
+    action.add_argument(
+        "--simulate",
+        help="Run no commands but simulate all actions",
+        action="store_true",
+        default=False
+    )
     action.add_argument(
         "action",
         help="Action to perform",
@@ -834,18 +882,16 @@ def main():
     args = parser.parse_args()
 
     try:
-        exceptions = []  # Flag these as missing but proceed
-        check("brctl")
-        check("ip")
-        check("sed")
-        check("ovs-vsctl")
-        check("service")
+        exceptions = []
+        for cmd in ['brctl', 'ip', 'sed', 'ovs-vsctl', 'service']:
+            check(cmd)
+
         exceptions.append(check("keepalived", exception=True))
 
         retro = Retrofit(args, exceptions)
         retro.retrofit()
 
-    except Exception as e:
+    except Exception:
         print(traceback.format_exc())
         raise SystemExit("Aborting due to exception")
 
