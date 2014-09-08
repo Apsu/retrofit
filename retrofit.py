@@ -763,7 +763,10 @@ class Retrofit():
                     "type veth peer name {} || true".format(
                         self.vethphy,
                         self.vethovs
-                    )
+                    ),
+                    "pre-up ip link set {} up".format(self.vethphy),
+                    "pre-up ip link set {} up".format(self.vethovs),
+                    "post-down ip link del {}".format(self.vethphy)
                 ]
             )
 
@@ -782,7 +785,10 @@ class Retrofit():
                     "type veth peer name {} || true".format(
                         self.vethphy,
                         self.vethovs
-                    )
+                    ),
+                    "pre-up ip link set {} up".format(self.vethphy),
+                    "pre-up ip link set {} up".format(self.vethovs),
+                    "post-down ip link del {}".format(self.vethphy)
                 ]
             )
 
