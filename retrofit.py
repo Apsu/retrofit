@@ -766,7 +766,7 @@ class Retrofit():
                     ),
                     "pre-up ip link set {} up".format(self.vethphy),
                     "pre-up ip link set {} up".format(self.vethovs),
-                    "post-down ip link del {}".format(self.vethphy)
+                    "post-down ip link del {} || true".format(self.vethphy)
                 ]
             )
 
@@ -788,7 +788,7 @@ class Retrofit():
                     ),
                     "pre-up ip link set {} up".format(self.vethphy),
                     "pre-up ip link set {} up".format(self.vethovs),
-                    "post-down ip link del {}".format(self.vethphy)
+                    "post-down ip link del {} || true".format(self.vethphy)
                 ]
             )
 
